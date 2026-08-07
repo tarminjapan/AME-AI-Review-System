@@ -9,7 +9,7 @@ import subprocess
 import sys
 from typing import Any, cast
 
-from . import github_client, payload, stale_detect
+from . import github_client, payload, review_config, stale_detect
 
 _STREAK_THRESHOLD = 2
 _COMMENT_MARKER = "<!-- ai-review-streak -->"
@@ -198,9 +198,14 @@ def _demote_stale(
 
     stale_detect.demote_stale (コメント単位の Jaccard stale-loop 検出) で繰り返し指摘
     だけを LOW 扱いにし、新規指摘は降格しない (Issue #55 B2)。
-    escape 条件自体は変更しない。
+    escape 条件自体は変更しない。しきい値は config の ``stale_jaccard_threshold``
+    から読み込む (Issue #67)。
     """
-    return stale_detect.demote_stale(comments, prev_comment_texts)
+    return stale_detect.demote_stale(
+        comments,
+        prev_comment_texts,
+        threshold=review_config.stale_threshold(),
+    )
 
 
 def cmd_evaluate(pr_number: int, review_path: str) -> int:

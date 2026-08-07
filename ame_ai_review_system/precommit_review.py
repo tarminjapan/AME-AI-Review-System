@@ -319,7 +319,11 @@ def _demote_stale_comments(
     """
     if not prev_comment_texts:
         return comments, False
-    result = stale_detect.demote_stale(comments, prev_comment_texts)
+    result = stale_detect.demote_stale(
+        comments,
+        prev_comment_texts,
+        threshold=review_config.stale_threshold(),
+    )
     stale_detected = any(
         a.get("severity") != b.get("severity")
         for a, b in zip(comments, result, strict=True)

@@ -499,8 +499,19 @@ def test_cmd_evaluate_stale_blocking_demoted_to_low(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # Issue #55 B2: 前回レビューと同一のコメントは MIDDLE でも LOW に降格して
-    # streak を進める (escape 条件は変更しない)。
-    prev_text = "バグが残っています\nバグが残っています の詳細"
+    # streak を進める (escape 条件は変更しない)。Issue #67 以降 comment_text は
+    # path/line/title のアンカー形式で保存されるため、prev も同じ形式で与える。
+    from ame_ai_review_system import stale_detect
+
+    prev_text = stale_detect.comment_text(
+        {
+            "severity": "MIDDLE",
+            "path": "a",
+            "line": 1,
+            "title": "バグが残っています",
+            "body": "バグが残っています の詳細",
+        },
+    )
     encoded = pr_streak._encode_review_texts([prev_text])
     monkeypatch.setattr(pr_streak, "_token", lambda: "fake")
     monkeypatch.setattr(pr_streak, "_github_env", lambda: ("https://u", "r"))

@@ -23,10 +23,15 @@ def trigrams(text: str) -> set[str]:
     return {text[i : i + _TRIGRAM_SIZE] for i in range(len(text) - (_TRIGRAM_SIZE - 1))}
 
 
-def is_stale_loop(comment_bodies: list[str]) -> bool:
+def is_stale_loop(
+    comment_bodies: list[str],
+    *,
+    threshold: float | None = None,
+) -> bool:
     """直近 2 件の本文が同一指摘の繰り返しか判定する.
 
     トリグラム数が 4 未満の短いコメントは完全一致で判定する。
+    ``threshold`` で Jaccard しきい値を上書きできる (Issue #67)。
     """
     if len(comment_bodies) < _MIN_COMMENTS_FOR_STALE:
         return False
@@ -40,8 +45,9 @@ def is_stale_loop(comment_bodies: list[str]) -> bool:
     if len(g1) < _STALE_MIN_NGRAMS or len(g2) < _STALE_MIN_NGRAMS:
         return g1 == g2
 
+    cutoff = threshold if threshold is not None else _STALE_JACCARD_THRESHOLD
     jaccard = len(g1 & g2) / len(g1 | g2)
-    return jaccard >= _STALE_JACCARD_THRESHOLD
+    return jaccard >= cutoff
 
 
 def comment_text(comment: dict[str, Any]) -> str:
@@ -49,13 +55,27 @@ def comment_text(comment: dict[str, Any]) -> str:
 
     severity は MIDDLE → LOW → MIDDLE と揺れるため比較対象から除外する
     (Issue #55 B2)。
+
+    Issue #67: 指摘の安定識別子である ``path`` / ``line`` / ``title`` を主体にする。
+    LLM は修正済みの同一指摘を本文 (body) を言い換えて再投稿するが、トリグラム集合
+    は本文の差異で希釈されるため本文を比較に使うと Jaccard が下がり stale 判定が
+    発火しない。path/line/title が揃う場合はこれをアンカーとして本文を除外し、
+    同一箇所への再投稿を確実に検出する。アンカーが実質的に空 (path も title も
+    無い) の場合は本文で比較する。
     """
-    return f"{comment.get('title', '')}\n{comment.get('body', '')}"
+    path = str(comment.get("path", "")).strip()
+    line = comment.get("line", "")
+    title = str(comment.get("title", "")).strip()
+    if path or title:
+        return f"{path}\n{line}\n{title}"
+    return str(comment.get("body", ""))
 
 
 def demote_stale(
     comments: list[dict[str, Any]],
     prev_comment_texts: list[str],
+    *,
+    threshold: float | None = None,
 ) -> list[dict[str, Any]]:
     """前回レビューと同一のコメントのみを LOW へ降格する.
 
@@ -65,6 +85,7 @@ def demote_stale(
 
     レビュー全体ではなくコメント単位で突き合わせることで、繰り返し指摘の中に紛れた
     新規の CRITICAL/HIGH 指摘を誤って降格しない。escape 条件自体は変更しない。
+    ``threshold`` で Jaccard しきい値を上書きできる (Issue #67)。
     """
     if not prev_comment_texts:
         return comments
@@ -75,7 +96,7 @@ def demote_stale(
     for comment in comments:
         current = comment_text(comment)
         if not current.strip() or not any(
-            is_stale_loop([prev, current]) for prev in prev_texts
+            is_stale_loop([prev, current], threshold=threshold) for prev in prev_texts
         ):
             result.append(comment)
             continue

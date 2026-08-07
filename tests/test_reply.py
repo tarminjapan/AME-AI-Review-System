@@ -68,6 +68,22 @@ def test_stale_loop_empty_bodies() -> None:
     assert is_stale_loop(["", ""]) is False
 
 
+# --- is_stale_loop threshold (Issue #67) ---------------------------------
+
+
+def test_stale_loop_threshold_override_detects_lower_similarity() -> None:
+    # デフォルト 0.80 では非 stale だが、閾値を下げると stale 判定される組。
+    c1 = "この関数は例外をキャッチしていません 修正してください"
+    c2 = "この関数は例外処理が不足しています 直してください"
+    assert is_stale_loop([c1, c2]) is False
+    assert is_stale_loop([c1, c2], threshold=0.25) is True
+
+
+def test_stale_loop_threshold_none_uses_default() -> None:
+    body = "この関数は例外をキャッチしていません 修正してください"
+    assert is_stale_loop([body, body], threshold=None) is True
+
+
 # --- _group_by_thread (GitHub flat comments API) ---------------------------
 
 
