@@ -799,9 +799,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_init.add_argument(
         "--preset",
-        choices=["full", "minimal", "python", "text"],
-        default="full",
-        help="pre-commit static analysis preset (default: full)",
+        choices=["full", "minimal", "python", "text", "ts", "auto"],
+        default="auto",
+        help="pre-commit static analysis preset (default: auto = package.jsonが"
+        "あれば ts、なければ full; Issue #69)",
     )
     p_init.add_argument(
         "--ref",

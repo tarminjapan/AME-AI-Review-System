@@ -1,0 +1,88 @@
+---
+# AME AI Review System — pre-commit profile: ts
+# Node/TypeScript 静的解析 (eslint / tsc / prettier / stylelint / codespell / yamllint)
+# + AI レビューフック。eslint/tsc/prettier/stylelint はプロジェクトローカルの
+# node_modules/.bin を直接起動するため、事前に npm install (または pnpm/yarn install) が
+# 必要。tsc は tsconfig.json が型チェック向けでないと無関係エラーが噛むため、
+# デフォルトでは eslint のみ有効化し tsc はコメントアウトしてある (Issue #69)。
+minimum_pre_commit_version: "4.0.0"
+fail_fast: true
+
+repos:
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        # Issue #69: lockfile の圧縮トークンを typo と誤検知するため除外。
+        exclude: "(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock)$"
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [--strict]
+        # Issue #69: lockfile (数千行・長行) は yamllint --strict で大量エラーになるため除外。
+        exclude: "(pnpm-lock\\.yaml|.*-lock\\.(yaml|json)|yarn\\.lock)$"
+
+  - repo: local
+    hooks:
+      # eslint はフラット設定 (eslint.config.mjs) または .eslintrc のどちらでも動く。
+      - id: eslint
+        name: eslint (TypeScript)
+        entry: ./node_modules/.bin/eslint --max-warnings=0 --no-warn-ignored
+        language: system
+        types: [ts]
+        pass_filenames: true
+
+      # tsc は tsconfig が型チェック向け (noEmit 等) の場合のみ有効化すること。
+      # ルート tsconfig がソリューション参照型だと無関係な既存エラーが表面化する。
+      # 必要ならコメントを外して -p で型チェック用 tsconfig を明示すること。
+      # - id: tsc
+      #   name: tsc (type check)
+      #   entry: ./node_modules/.bin/tsc --noEmit
+      #   language: system
+      #   pass_filenames: false
+      #   files: \.(ts|tsx)$
+
+      - id: prettier
+        name: prettier (format check)
+        entry: ./node_modules/.bin/prettier --check
+        language: system
+        types_or: [ts, tsx, js, jsx, json, css, scss, yaml, markdown]
+        pass_filenames: true
+
+      - id: stylelint
+        name: stylelint (CSS)
+        entry: ./node_modules/.bin/stylelint
+        language: system
+        types_or: [css, scss]
+        pass_filenames: true
+
+  # =========================================================================
+  # AME AI Review System — Gate 1 AI review hooks
+  # =========================================================================
+  - repo: local
+    hooks:
+      - id: ai-skip-guard
+        name: "AI review skip guard (Issue #26)"
+        entry: python -m ame_ai_review_system.skip_guard
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: ai-precommit-review
+        name: "AI Code Review (pre-commit)"
+        entry: python -m ame_ai_review_system.precommit_review
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: ai-review-state-reset
+        name: "AI review state reset (post-commit)"
+        entry: python -m ame_ai_review_system.post_commit_reset
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-commit]

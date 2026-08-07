@@ -29,6 +29,7 @@ _PRESETS: dict[str, str] = {
     "minimal": "minimal.yaml",
     "python": "python.yaml",
     "text": "text.yaml",
+    "ts": "ts.yaml",
 }
 
 # .ame-review/ へ配置する既定ファイル (存在するテンプレートのみ)。
@@ -46,6 +47,21 @@ _WORKFLOW_FILES = (
 
 def _templates_dir() -> Path:
     return paths.package_dir() / "templates"
+
+
+def _resolve_preset(preset: str, root: Path) -> str:
+    """Preset 名を解決する (Issue #69).
+
+    ``auto`` (既定) のとき ``package.json`` があれば Node/TS 向き ``ts`` を選び、
+    無ければ ``full`` を選ぶ。明示指定された preset はそのまま返す。
+    """
+    if preset != "auto":
+        return preset
+    if (root / "package.json").exists():
+        print("  package.json detected; preset = ts")
+        return "ts"
+    print("  no package.json; preset = full")
+    return "full"
 
 
 def _write(dst: Path, content: str, *, force: bool) -> bool:
@@ -82,7 +98,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         _copy_template(src, ame_dir / name, force=args.force)
 
     # .pre-commit-config.yaml を preset から生成。
-    preset_file = _PRESETS.get(args.preset, _PRESETS["full"])
+    preset_name = _resolve_preset(args.preset, root)
+    preset_file = _PRESETS.get(preset_name, _PRESETS["full"])
     src = _templates_dir() / "precommit" / preset_file
     if not src.exists():
         print(f"ERROR: preset template not found: {src}", file=sys.stderr)

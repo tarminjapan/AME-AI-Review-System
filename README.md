@@ -185,7 +185,9 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
    ame-ai-reviewer init --preset python --ref v0.1.0 --with-engines
    ```
 
-   - `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
+   - `--preset`: pre-commit 静的解析セット
+     (`auto` / `full` / `python` / `text` / `ts` / `minimal`)。
+     `auto` (既定) は `package.json` の有無で `ts` か `full` を自動選択する (Issue #69)
    - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
 
    生成物は以下のとおり。

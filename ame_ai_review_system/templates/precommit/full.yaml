@@ -23,6 +23,8 @@ repos:
     rev: v2.3.0
     hooks:
       - id: codespell
+        # Issue #69: lockfile の圧縮トークンを typo と誤検知するため除外。
+        exclude: "(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock)$"
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.0
@@ -34,6 +36,8 @@ repos:
     hooks:
       - id: yamllint
         args: [--strict]
+        # Issue #69: lockfile (数千行・長行) は yamllint --strict で大量エラーになるため除外。
+        exclude: "(pnpm-lock\\.yaml|.*-lock\\.(yaml|json)|yarn\\.lock)$"
 
   - repo: https://github.com/koalaman/shellcheck-precommit
     rev: v0.10.0
