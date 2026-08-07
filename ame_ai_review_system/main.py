@@ -804,6 +804,12 @@ def main(argv: list[str] | None = None) -> int:
         help="pre-commit static analysis preset (default: full)",
     )
     p_init.add_argument(
+        "--python",
+        default=None,
+        help="Gate 1 フックへ埋め込む Python インタープリタパス "
+        "(default: AME_INIT_PYTHON env or sys.executable; Issue #66)",
+    )
+    p_init.add_argument(
         "--ref",
         default=None,
         help="GitHub ref for reusable workflows (required unless --no-workflow)",

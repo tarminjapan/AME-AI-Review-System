@@ -187,6 +187,16 @@ Release のタグ付き wheel を配布している（PyPI 非公開）。他プ
 
    - `--preset`: pre-commit 静的解析セット (`full` / `python` / `text` / `minimal`)
    - `--ref`: reusable workflow の参照 (リリースタグ or ブランチ)
+   - `--python`: Gate 1 (pre-commit AI フック) が使う Python インタープリタパス。
+     省略時は `AME_INIT_PYTHON` 環境変数、次に `ame-ai-reviewer` 自身を実行中の
+     インタープリタ (`sys.executable`) となる。Ubuntu 24 等 PEP 668
+     (externally-managed) 環境では、venv / `uv tool` / `pipx` の Python を明示するか
+     それらの中から `ame-ai-reviewer` を実行することで Gate 1 が動作する (Issue #66)。
+
+   > [!NOTE] **生成物は機械固有**: `--python` で埋め込んだ絶対パスは init 実行環境に
+   > 依存するため、生成された `.pre-commit-config.yaml` はそのまま別マシン/CI では
+   > 動きません。各環境で `ame-ai-reviewer init` を実行するか、共有が必要な場合は
+   > `AME_INIT_PYTHON` で環境ごとに解決してください (Issue #66)。
 
    生成物は以下のとおり。
 
