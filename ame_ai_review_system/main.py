@@ -418,14 +418,25 @@ def _build_review_payloads(
     base_ref: str,
     head_sha: str,
     repair: Callable[[str], str | None] | None = None,
-) -> list[dict[str, Any]]:
-    """Parse review JSON and build GitHub review payloads."""
-    review, _ = payload_module.parse_review_json_with_flag(
+    max_attempts: int | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Parse review JSON and build GitHub review payloads.
+
+    ``(payloads, is_fallback)`` を返す。``is_fallback`` は JSON パース失敗時に真。
+    """
+    review, is_fallback = payload_module.parse_review_json_with_flag(
         review_json,
         repair=repair,
+        max_attempts=max_attempts,
     )
     valid_lines = payload_module.build_valid_lines_map(base_ref)
-    return payload_module.build_review_payloads(review, valid_lines, head_sha)
+    payloads = payload_module.build_review_payloads(
+        review,
+        valid_lines,
+        head_sha,
+        is_fallback=is_fallback,
+    )
+    return payloads, is_fallback
 
 
 def cmd_review(args: argparse.Namespace) -> int:
@@ -634,7 +645,7 @@ def cmd_review(args: argparse.Namespace) -> int:
         os.close(fd)
         review_file = pathlib.Path(review_path)
         review_file.write_text(engine_out, encoding="utf-8")
-        payloads = _build_review_payloads(
+        payloads, is_fallback = _build_review_payloads(
             str(review_file),
             base_ref,
             head_sha,
@@ -646,7 +657,14 @@ def cmd_review(args: argparse.Namespace) -> int:
                     show_info=show_info,
                 ),
             ),
+            max_attempts=review_config.max_repair_attempts(),
         )
+        if is_fallback:
+            print(
+                "[review] JSON parse failed after repair attempts; "
+                "posting retry-request summary without reviewed-sha marker.",
+                file=sys.stderr,
+            )
     except (ValueError, KeyError, TypeError, OSError) as e:
         print(f"[review] Failed to build payload: {e}", file=sys.stderr)
         return 1

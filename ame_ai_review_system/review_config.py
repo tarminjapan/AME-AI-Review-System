@@ -48,6 +48,9 @@ _DEFAULTS: dict[str, Any] = {
     "show_engine_info_gate2": True,
     # Issue #37: 壊れたレビュー JSON を修復する際に使うモデル (省略時は本体と同じ)。
     "review_repair_model": None,
+    # Issue #65: 壊れたレビュー JSON を LLM で修復する最大試行回数。パース失敗で
+    # ラウンド全体が不成立になるのを防ぐため、既定を従来の 2 から 3 へ引き上げる。
+    "review_repair_attempts": 3,
     "engine": "claude",
     # Issue #55 B3/I3: model 既定を None 化し、非 claude エンジンはサーバー既定へ委ねる。
     # claude のみ engine.py 側で sonnet 既定を維持する (後方互換)。
@@ -230,6 +233,17 @@ def apply_repair_model(settings: dict[str, Any]) -> dict[str, Any]:
     if repair_model:
         return {**settings, "model": repair_model}
     return settings
+
+
+def max_repair_attempts(config: Mapping[str, Any] | None = None) -> int:
+    """壊れたレビュー JSON の LLM 修復最大試行回数を返す (既定 3, Issue #65)."""
+    cfg = config if config is not None else load_config()
+    raw = cfg.get("review_repair_attempts", _DEFAULTS["review_repair_attempts"])
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return int(_DEFAULTS["review_repair_attempts"])
+    return value if value > 0 else int(_DEFAULTS["review_repair_attempts"])
 
 
 def filter_review_targets(files: list[str]) -> list[str]:

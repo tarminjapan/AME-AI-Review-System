@@ -164,6 +164,59 @@ def test_parse_review_json_structural_repair_without_llm(tmp_path: Path) -> None
     assert called["llm"] is False
 
 
+def test_parse_review_json_max_attempts_respected(tmp_path: Path) -> None:
+    # Issue #65: max_attempts で修復試行回数を制限できる。
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text("not a json content at all", encoding="utf-8")
+
+    calls = {"n": 0}
+
+    def _repair(_raw: str) -> str | None:
+        calls["n"] += 1
+        return "still broken"
+
+    _res, is_fallback = parse_review_json_with_flag(
+        str(tmp_file),
+        repair=_repair,
+        max_attempts=5,
+    )
+    assert is_fallback is True
+    assert calls["n"] == 5
+
+
+def test_parse_review_json_default_attempts_is_three(tmp_path: Path) -> None:
+    # Issue #65: 省略時は 3 回 (従来 2 から引き上げ)。
+    tmp_file = tmp_path / "broken.json"
+    tmp_file.write_text("not a json content at all", encoding="utf-8")
+
+    calls = {"n": 0}
+
+    def _repair(_raw: str) -> str | None:
+        calls["n"] += 1
+        return "still broken"
+
+    _res, _is_fallback = parse_review_json_with_flag(str(tmp_file), repair=_repair)
+    assert calls["n"] == 3
+
+
+def test_build_payloads_omits_reviewed_sha_on_fallback() -> None:
+    # Issue #65: パース失敗時は reviewed-sha マーカーを付けず再レビューを可能にする。
+    from ame_ai_review_system.payload import build_review_payloads
+
+    fallback = {"summary": "parse failed", "comments": []}
+    payloads = build_review_payloads(fallback, {}, "abc123", is_fallback=True)
+    assert len(payloads) == 1
+    assert "reviewed-sha" not in payloads[0]["body"]
+
+
+def test_build_payloads_keeps_reviewed_sha_on_success() -> None:
+    from ame_ai_review_system.payload import build_review_payloads
+
+    review = {"summary": "LGTM", "comments": []}
+    payloads = build_review_payloads(review, {}, "abc123", is_fallback=False)
+    assert "reviewed-sha: abc123" in payloads[0]["body"]
+
+
 def test_build_repair_prompt_sanitizes_fence() -> None:
     from ame_ai_review_system.payload import build_repair_prompt
 
