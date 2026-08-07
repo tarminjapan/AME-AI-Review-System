@@ -20,16 +20,27 @@ permissions:
   contents: read
   pull-requests: write
 
+# Issue #68: issue_comment は Issue と PR の両方で発火するが、PR コメント以外は
+# ジョブ if で弾く。残る skipped run を同一 PR/Issue ごとにグループ化して履歴の
+# ノイズを抑える (cancel はレビュー途中のトークン無駄遣いを避けるため行わない)。
+concurrency:
+  group: review-command-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: false
 jobs:
   review:
     if: >-
       github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request != null &&
        github.event.comment.user.login != 'ame-ai-reviewer[bot]' &&
-       startsWith(github.event.comment.body, '/'))
+       (github.event.comment.body == '/request-review' ||
+        github.event.comment.body == '/review' ||
+        startsWith(github.event.comment.body, '/request-review ') ||
+        startsWith(github.event.comment.body, '/review ')))
     uses: ./.github/workflows/review-command.yml
     with:
       pr_number: ${{ inputs.pr_number || github.event.issue.number }}
-      command: ${{ github.event.comment.body }}
+      # Issue #71: workflow_dispatch 時は github.event.comment が無く command が空になる。
+      # 空文字は || で /request-review へフォールバックし、手動実行でも判定を通す。
+      command: ${{ github.event.comment.body || '/request-review' }}
       review_engine: ${{ vars.REVIEW_ENGINE || '' }}
       review_model: ${{ vars.REVIEW_MODEL || '' }}
       reply_model: ${{ vars.REPLY_MODEL || '' }}
