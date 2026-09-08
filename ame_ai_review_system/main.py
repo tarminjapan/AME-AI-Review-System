@@ -34,11 +34,14 @@ from .engine import apply_engine_info_env, resolve_settings, resolve_timeout
 # ============================================================================
 
 PROJ_ROOT = paths.project_root()
-STALE_ROUND_THRESHOLD = 3
-MAX_REVIEWS = 10
+# Issue #129: 収束シグナルの発火ラウンド。pr_max_reviews (既定 3) で最終レビューにも
+# 発火するよう 2 (3 ラウンド目以降) としている。
+STALE_ROUND_THRESHOLD = 2
 HTTP_STATUS_OK = 200
 # 除外ディレクトリのみの変更でスキップ通知を投稿する際の重複防止マーカー (PR 番号が付与される)。
 SKIP_NOTICE_MARKER = "ame-review-skip-notice"
+# Issue #129: レビュー回数上限到達通知の重複防止マーカー (PR 番号が付与される)。
+LIMIT_NOTICE_MARKER = "ame-review-limit-notice"
 # スキップ通知の既存判定で使うページサイズ / ページ上限。
 SKIP_NOTICE_PAGE_SIZE = 100
 SKIP_NOTICE_MAX_PAGES = 10
@@ -543,6 +546,65 @@ def _post_skip_notice(api_url: str, repo: str, pr_number: int, token: str) -> No
         print(f"[review] Failed to notify skip reason: {e}", file=sys.stderr)
 
 
+def _post_limit_notice(
+    api_url: str,
+    repo: str,
+    pr_number: int,
+    token: str,
+    max_reviews: int,
+) -> None:
+    """Gate 2 のレビュー回数上限到達を PR へ一度だけ通知する.
+
+    ``pr_max_reviews`` (Issue #129) に達してレビューをスキップすると PR 上では
+    無言のまま review が止まるため、開発者が「なぜ黙ったか」を把握できるよう
+    マーカー付きコメントを一度だけ投稿する。``_post_skip_notice`` と同じ重複防止
+    パターン (marker + issue_url) を再利用する。
+    """
+    notice_url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments"
+    marker = f"{LIMIT_NOTICE_MARKER}-pr{pr_number}"
+    issue_url = f"{api_url}/repos/{repo}/issues/{pr_number}"
+    try:
+        existing = github_client.http_request(
+            "GET",
+            f"{api_url}/repos/{repo}/issues/comments"
+            f"?sort=created&direction=desc&per_page={SKIP_NOTICE_PAGE_SIZE}",
+            token,
+        )
+        already_posted = False
+        if isinstance(existing, list):
+            already_posted = skip_notice_already_posted(
+                cast("list[dict[str, Any]]", existing),
+                marker,
+                issue_url,
+            )
+    except RuntimeError as e:
+        print(
+            f"[review] Failed to check existing limit notice: {e}",
+            file=sys.stderr,
+        )
+        return
+    if already_posted:
+        print("[review] Limit notification already posted; skipping.")
+        return
+    body = (
+        "**AI レビュー回数上限に到達しました**\n\n"
+        f"この PR は既に {max_reviews} 回レビュー済みのため、"
+        "`pr_max_reviews` の上限に従い Gate 2 を終了します。\n"
+        "指摘への対応状況を確認の上、必要に応じて手動でマージしてください "
+        "(上限は `config.json` の `pr_max_reviews` で変更できます)。\n\n"
+        f"<!-- {marker} -->"
+    )
+    try:
+        github_client.http_request(
+            "POST",
+            notice_url,
+            token,
+            body={"body": body},
+        )
+    except RuntimeError as e:
+        print(f"[review] Failed to notify review limit: {e}", file=sys.stderr)
+
+
 def _run_engine_text(
     prompt: str,
     settings: dict[str, Any],
@@ -646,10 +708,17 @@ def cmd_review(args: argparse.Namespace) -> int:
         print(f"[review] Already reviewed HEAD SHA {head_sha[:8]}, skipping.")
         return 0
 
-    if len(reviewed_shas) >= MAX_REVIEWS:
+    # Issue #129: 総レビュー回数のハード上限。LOW 連続の有無に関わらず、この回数に
+    # 達したらそれ以降の PR レビューはスキップして Gate 2 を終了する。上限到達は
+    # 開発者が把握できるよう PR へ一度だけ通知する。
+    max_reviews = review_config.pr_max_reviews()
+    if len(reviewed_shas) >= max_reviews:
         print(
-            f"[review] Already {len(reviewed_shas)} push review(s) (max 10), skipping.",
+            f"[review] Already {len(reviewed_shas)} push review(s) "
+            f"(max {max_reviews}), skipping.",
         )
+        if token:
+            _post_limit_notice(api_url, repo, pr_number, token, max_reviews)
         return 0
 
     # Get diff and changed files

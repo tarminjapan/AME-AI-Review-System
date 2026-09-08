@@ -1,11 +1,16 @@
 # pyright: basic
 from __future__ import annotations
 
+import argparse
 from typing import Any
 
 import pytest
 from ame_ai_review_system import github_client, main
-from ame_ai_review_system.main import SKIP_NOTICE_MARKER, skip_notice_already_posted
+from ame_ai_review_system.main import (
+    LIMIT_NOTICE_MARKER,
+    SKIP_NOTICE_MARKER,
+    skip_notice_already_posted,
+)
 
 _MARKER = f"{SKIP_NOTICE_MARKER}-pr38"
 _ISSUE_URL = "https://api.github.com/repos/AME-Team/AME-AI-Review-System/issues/38"
@@ -357,3 +362,107 @@ def test_is_valid_ref_name_rejects_unsafe() -> None:
         "foo\x00bar",
     ]:
         assert not main._is_valid_ref_name(name), name
+
+
+# --- _post_limit_notice / pr_max_reviews (Issue #129) ------------------------
+
+
+def test_post_limit_notice_posts_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    posts: list[str] = []
+
+    def _fake_http(method: str, url: str, _token: str, **_kw: Any) -> Any:
+        if method == "POST":
+            posts.append(url)
+        return []
+
+    monkeypatch.setattr(github_client, "http_request", _fake_http)
+    main._post_limit_notice(
+        "https://api.github.com",
+        "AME-Team/AME-AI-Review-System",
+        38,
+        "tok",
+        3,
+    )
+    assert len(posts) == 1
+    assert "issues/38/comments" in posts[0]
+
+
+def test_post_limit_notice_dedups_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # マーカー付き通知が既にある場合は二重投稿しない (skip_notice と同パターン)。
+    marker = f"{LIMIT_NOTICE_MARKER}-pr38"
+    issue_url = "https://api.github.com/repos/AME-Team/AME-AI-Review-System/issues/38"
+    posts: list[str] = []
+
+    def _fake_http(method: str, url: str, _token: str, **_kw: Any) -> Any:
+        if method == "GET":
+            return [{"body": f"<!-- {marker} -->", "issue_url": issue_url}]
+        if method == "POST":
+            posts.append(url)
+        return []
+
+    monkeypatch.setattr(github_client, "http_request", _fake_http)
+    main._post_limit_notice(
+        "https://api.github.com",
+        "AME-Team/AME-AI-Review-System",
+        38,
+        "tok",
+        3,
+    )
+    assert posts == []
+
+
+def test_cmd_review_skips_at_pr_max_reviews(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #129: 総レビュー回数 (pr_max_reviews) 到達時はレビューせずスキップし、
+    # PR へ上限到達通知を投稿する。
+    monkeypatch.setenv("GITHUB_REPOSITORY", "AME-Team/AME-AI-Review-System")
+    monkeypatch.setenv("GITHUB_API_URL", "https://api.github.com")
+    reviewed = [
+        {
+            "user": {"login": "ame-ai-reviewer[bot]"},
+            "body": f"<!-- reviewed-sha: {'b' * 40} -->",
+        },
+        {
+            "user": {"login": "ame-ai-reviewer[bot]"},
+            "body": f"<!-- reviewed-sha: {'c' * 40} -->",
+        },
+        {
+            "user": {"login": "ame-ai-reviewer[bot]"},
+            "body": f"<!-- reviewed-sha: {'d' * 40} -->",
+        },
+    ]
+    calls: list[tuple[str, str, str]] = []
+
+    def _fake_http(method: str, url: str, _token: str, **_kw: Any) -> Any:
+        body = str(_kw.get("body", {}).get("body", ""))
+        calls.append((method, url, body))
+        # 上限通知の重複確認用 GET は既存コメント無しで返す。
+        if method == "GET" and "/issues/comments" in url:
+            return []
+        return reviewed
+
+    monkeypatch.setattr(github_client, "http_request", _fake_http)
+    monkeypatch.setattr(main, "_run_git", lambda *_a: "a" * 40)
+    monkeypatch.setattr(
+        "ame_ai_review_system.pr_streak.cmd_check",
+        lambda *_a: 1,
+    )
+    fake_token = "tok"
+    args = argparse.Namespace(
+        pr_number=38,
+        base_ref="main",
+        pr_title="",
+        pr_body="",
+        prompt_file=None,
+        token=fake_token,
+    )
+    assert main.cmd_review(args) == 0
+    out = capsys.readouterr().out
+    assert "(max 3)" in out
+    assert any(
+        method == "POST" and LIMIT_NOTICE_MARKER in body for method, url, body in calls
+    )

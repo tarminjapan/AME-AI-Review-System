@@ -63,19 +63,31 @@ def test_decide_low_only_streak_0_fails() -> None:
     assert new_streak == 1
 
 
-def test_decide_low_only_streak_1_passes() -> None:
+def test_decide_low_only_streak_1_fails_at_default_threshold() -> None:
+    # Issue #129: 既定閾値 (precommit_max_reviews=3) では streak 1 はまだ PASS しない。
     comments = [{"severity": "LOW"}]
     allow, new_streak, reason = decide(comments, 1)
-    assert allow is True
+    assert allow is False
     assert new_streak == 2
-    assert "無限ループ回避" in reason
+    assert "(streak 2/3)" in reason
 
 
-def test_decide_low_only_streak_2_passes() -> None:
+def test_decide_low_only_streak_2_passes_at_default_threshold() -> None:
+    # Issue #129: streak 2 → 3 で既定閾値 3 に達して PASS。
     comments = [{"severity": "LOW"}]
     allow, new_streak, reason = decide(comments, 2)
     assert allow is True
     assert new_streak == 3
+    assert "無限ループ回避" in reason
+
+
+def test_decide_threshold_override_keeps_old_behavior() -> None:
+    # Issue #129: threshold=2 を渡すと従来 (streak 1 で PASS) の挙動を維持する
+    # (後方互換)。
+    comments = [{"severity": "LOW"}]
+    allow, new_streak, reason = decide(comments, 1, threshold=2)
+    assert allow is True
+    assert new_streak == 2
     assert "無限ループ回避" in reason
 
 
@@ -994,12 +1006,12 @@ def test_main_low_only_at_threshold_passes(
 ) -> None:
     precommit_state.write_state(
         env["state_path"],
-        {"branches": {"feature": {"low_only_streak": 1}}},
+        {"branches": {"feature": {"low_only_streak": 2}}},
     )
     _engine_returning(
         monkeypatch,
         {
-            "summary": "low only 2nd",
+            "summary": "low only 3rd",
             "comments": [
                 {
                     "path": "f",
@@ -1014,7 +1026,7 @@ def test_main_low_only_at_threshold_passes(
     rc = precommit_review.main([])
     assert rc == 0
     state = precommit_state.read_state(env["state_path"])
-    assert state["branches"]["feature"]["low_only_streak"] == 2
+    assert state["branches"]["feature"]["low_only_streak"] == 3
 
 
 def test_main_stale_review_demotes_and_builds_streak(

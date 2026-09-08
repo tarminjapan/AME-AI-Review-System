@@ -37,6 +37,10 @@ _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
     "precommit_require_static_checks": True,
     "pr_review_require_static_checks": True,
+    # Issue #129: 無限レビュー防止のための AI レビュー回数上限。Gate1 (pre-commit)
+    # は LOW/INFO のみ連続時の escape 閾値、Gate2 (PR) は総レビュー回数のハード上限。
+    "precommit_max_reviews": 3,
+    "pr_max_reviews": 3,
     "ai_review_enforce_no_skip": True,
     # Issue #37: 移植先で vendored した ame_ai_review_system 配下は既定でレビュー対象外。
     "review_include_package_dir": False,
@@ -328,6 +332,45 @@ def stale_threshold(config: Mapping[str, Any] | None = None) -> float:
     except (TypeError, ValueError):
         return float(_DEFAULTS["stale_jaccard_threshold"])
     return value if 0.0 < value <= 1.0 else float(_DEFAULTS["stale_jaccard_threshold"])
+
+
+def _max_reviews(raw: object, default: int) -> int:
+    """レビュー回数上限を ``int`` として検証して返す (既定値フォールバック).
+
+    1 未満 (0 や負値) は「上限なし = 無限レビュー」を意味し無限ループを許すため、
+    既定値へフォールバックする (Issue #129)。``int`` に変換できない文字列等も同様。
+    """
+    try:
+        value = int(cast("Any", raw))
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 1 else default
+
+
+def precommit_max_reviews(config: Mapping[str, Any] | None = None) -> int:
+    """Gate 1 (pre-commit) の LOW/INFO のみ連続 escape 閾値を返す (既定 3, Issue #129).
+
+    ``precommit_max_reviews: 0`` や負値・不正値は既定値 3 へフォールバックする。
+    ``precommit_*`` キーのためグローバル設定 (Issue #120) からも取り込まれる。
+    """
+    cfg = config if config is not None else load_config()
+    return _max_reviews(
+        cfg.get("precommit_max_reviews", _DEFAULTS["precommit_max_reviews"]),
+        int(_DEFAULTS["precommit_max_reviews"]),
+    )
+
+
+def pr_max_reviews(config: Mapping[str, Any] | None = None) -> int:
+    """Gate 2 (PR) の総レビュー回数ハード上限を返す (既定 3, Issue #129).
+
+    LOW 連続の有無に関わらず、この回数に達したら以降の PR レビューはスキップして
+    Gate 2 を終了する。``pr_max_reviews: 0`` や負値・不正値は既定値 3 へフォールバックする。
+    """
+    cfg = config if config is not None else load_config()
+    return _max_reviews(
+        cfg.get("pr_max_reviews", _DEFAULTS["pr_max_reviews"]),
+        int(_DEFAULTS["pr_max_reviews"]),
+    )
 
 
 def filter_review_targets(files: list[str]) -> list[str]:
