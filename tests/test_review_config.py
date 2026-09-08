@@ -62,6 +62,9 @@ def test_load_config_default_disabled() -> None:
     # Issue #40: エンジン情報バナーは既定で表示。
     assert cfg["show_engine_info_gate1"] is True
     assert cfg["show_engine_info_gate2"] is True
+    # Issue #129: レビュー回数上限は Gate1 / Gate2 とも既定 3。
+    assert cfg["precommit_max_reviews"] == 3
+    assert cfg["pr_max_reviews"] == 3
 
 
 def test_load_config_reads_file() -> None:
@@ -104,6 +107,42 @@ def test_cli_is_review_command() -> None:
         ),
     )
     assert output.strip() == "true"
+
+
+# ---------------------------
+# Issue #129: レビュー回数上限アクセサ
+# ---------------------------
+
+
+def test_precommit_max_reviews_default() -> None:
+    assert review_config.precommit_max_reviews() == 3
+
+
+def test_precommit_max_reviews_custom() -> None:
+    assert review_config.precommit_max_reviews({"precommit_max_reviews": 5}) == 5
+
+
+def test_precommit_max_reviews_invalid_falls_back() -> None:
+    # 0 / 負値 / 非 int は「上限なし = 無限レビュー」を許さないため既定 3 へ。
+    assert review_config.precommit_max_reviews({"precommit_max_reviews": 0}) == 3
+    assert review_config.precommit_max_reviews({"precommit_max_reviews": -1}) == 3
+    assert review_config.precommit_max_reviews({"precommit_max_reviews": "abc"}) == 3
+    assert review_config.precommit_max_reviews({}) == 3
+
+
+def test_pr_max_reviews_default() -> None:
+    assert review_config.pr_max_reviews() == 3
+
+
+def test_pr_max_reviews_custom() -> None:
+    assert review_config.pr_max_reviews({"pr_max_reviews": 4}) == 4
+
+
+def test_pr_max_reviews_invalid_falls_back() -> None:
+    assert review_config.pr_max_reviews({"pr_max_reviews": 0}) == 3
+    assert review_config.pr_max_reviews({"pr_max_reviews": -5}) == 3
+    assert review_config.pr_max_reviews({"pr_max_reviews": "x"}) == 3
+    assert review_config.pr_max_reviews({}) == 3
 
 
 def test_user_config_overrides_default_config() -> None:

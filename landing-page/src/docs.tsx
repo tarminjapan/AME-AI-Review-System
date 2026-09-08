@@ -448,9 +448,9 @@ const FEATURE_DETAILS: FeatureDetail[] = [
   {
     title: "最大ラウンド制限",
     bodyJa:
-      "PR ごとのレビュー回数に上限（既定 10 回）を設け、無限ループを防止します。ラウンド 3 到達時には収束シグナルをプロンプトへ挿入します。",
+      "PR ごとのレビュー回数に上限（既定 3 回、config.json の pr_max_reviews で変更可）を設け、無限ループを防止します。3 ラウンド目以降には収束シグナルをプロンプトへ挿入します。",
     bodyEn:
-      "A maximum number of review rounds per PR (default 10) prevents infinite loops. A convergence signal is injected into the prompt at round 3.",
+      "A maximum number of review rounds per PR (default 3, configurable via pr_max_reviews in config.json) prevents infinite loops. A convergence signal is injected into the prompt from round 3 onward.",
   },
   {
     title: "複数レビュアー対応",

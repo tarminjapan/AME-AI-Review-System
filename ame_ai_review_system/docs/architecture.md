@@ -40,7 +40,7 @@ graph TD
         B -- 無効 --> D
         D --> E{指摘検出?}
         E -- なし/PASS --> F[コミット成功 & streakリセット]
-        E -- あり/FAIL --> G{LOW以下の指摘のみかつ2回連続?}
+        E -- あり/FAIL --> G{LOW以下の指摘のみ<br>かつ precommit_max_reviews 回?}
         G -- Yes (エスケープハッチ) --> F
         G -- No --> C
     end
@@ -72,8 +72,8 @@ graph TD
 3. **コミット可否判定**: AIの指摘に `CRITICAL`, `HIGH`, `MIDDLE`
    などのブロック対象（LOW/INFO 以外）が含まれる場合、コミットをブロックする。
 4. **エスケープハッチ**: `LOW`
-   レベル以下の指摘のみが 2 回連続した（streakが2に達した）場合、無限ループ回避のためコミットを許可（PASS）する。コミット成功時には
-   `post-commit` フックにより streak を 0 にリセットする。
+   レベル以下の指摘のみが連続し、`precommit_max_reviews`（既定 3 回）に達したら、無限ループ回避のためコミットを許可（PASS）する。コミット成功時は
+   `post-commit` フックが streak を 0 にリセットする。
 
 ### Gate 2: CI/CD 環境（PR ゲート）
 
@@ -142,7 +142,9 @@ sequenceDiagram
 - **`precommit_review.py`** pre-commit フック本体。 `git commit`
   実行時にステージ済み差分 + ブランチ差分（分岐元を `diff_base.py` で自動解決。Issue #55 I1）を
   `review_prompt.txt` と結合して `engine.py`
-  に渡す。PR レビューと同じプロンプトを再用。出力をパースし、指摘 0 件なら PASS、LOW/INFO 以外の severity（CRITICAL/HIGH/MIDDLE 等）を含めば FAIL、LOW/INFO のみの場合は streak カウンタを進めて 2 回連続で PASS とする（無限ループ回避）。同一指摘の繰り返しは Jaccard
+  に渡す。PR レビューと同じプロンプトを再用。出力をパースし、指摘 0 件なら PASS、LOW/INFO 以外の severity（CRITICAL/HIGH/MIDDLE 等）を含めば FAIL、LOW/INFO のみの場合は streak カウンタを進めて
+  `precommit_max_reviews` 回（既定 3 回, Issue
+  #129）で PASS とする（無限ループ回避）。同一指摘の繰り返しは Jaccard
   stale-loop 検出で LOW に降格して escape を機能させる（Issue #55
   B2）。エンジン失敗時は fail-closed でブロック。streak はブランチ単位で
   `~/.config/ame-ai-review-system/precommit_state_<hash>.json` に保存される。
@@ -171,7 +173,9 @@ sequenceDiagram
   Breaker）。ruff/mypy/semgrep を実行し、エラーが1件でもあれば AI レビューをスキップする。
 - **`diff_utils.py`** git
   diff のメタデータ・バイナリ差分・連続空行を除去する diff 圧縮ユーティリティ。
-- **`pr_streak.py`** PR レビューの streak 管理。2回連続で LOW 指摘のみの場合に完了扱いとする。
+- **`pr_streak.py`**
+  PR レビューの streak 管理。2回連続で LOW 指摘のみの場合に完了扱いとする（LOW 連続とは独立に、`main.py`
+  が総レビュー回数 `pr_max_reviews` のハード上限を持つ。Issue #129）。
 
 ---
 

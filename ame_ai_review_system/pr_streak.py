@@ -180,7 +180,7 @@ def cmd_set(pr_number: int, streak: int, comment_texts: list[str] | None = None)
 
 
 def cmd_check(pr_number: int) -> int:
-    """Exit 0 if approved (streak >= 3 AND no new push since approval), exit 1 otherwise."""
+    """Exit 0 if approved (streak >= 2 AND no new push since approval), exit 1 otherwise."""
     token = _token()
     if not token:
         return 1

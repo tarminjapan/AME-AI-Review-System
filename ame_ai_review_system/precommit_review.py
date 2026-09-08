@@ -24,8 +24,9 @@ from . import (
 # _build_diff が出力する "### ステージ済み差分 ..." ヘッダに対応する。
 _PRIORITY_DIFF_MARKER = "ステージ済み差分"
 
-# LOW streak がこの回数に達したら LOW のみの指摘でもコミットを許可する（無限ループ回避）。
-_LOW_STREAK_THRESHOLD = 2
+# LOW streak がこの回数に達したら LOW のみの指摘でもコミットの escape を許可する
+# (無限ループ回避)。閾値は Issue #129 の ``precommit_max_reviews`` (config.json) で制御し、
+# _decide が None のとき内部的に review_config から解決する。
 
 # エンジン失敗 streak がこの回数に達したらコミットを許可する（API 一時障害対策）。
 _ENGINE_FAILURE_STREAK_THRESHOLD = 3
@@ -299,7 +300,10 @@ def _is_blocking(comment: dict[str, Any]) -> bool:
 def _decide(
     comments: list[dict[str, Any]],
     streak: int,
+    threshold: int | None = None,
 ) -> tuple[bool, int, str]:
+    if threshold is None:
+        threshold = review_config.precommit_max_reviews()
     if not comments:
         return True, 0, "指摘 0 件のため PASS"
     blocking = [c for c in comments if _is_blocking(c)]
@@ -307,7 +311,7 @@ def _decide(
         return False, 0, f"blocking 指摘 {len(blocking)} 件を検出"
     # LOW-only。streak を進めて閾値に達したら抜ける。
     new_streak = streak + 1
-    if new_streak >= _LOW_STREAK_THRESHOLD:
+    if new_streak >= threshold:
         return (
             True,
             new_streak,
@@ -316,7 +320,7 @@ def _decide(
     return (
         False,
         new_streak,
-        f"LOW 指摘 {len(comments)} 件 (streak {new_streak}/{_LOW_STREAK_THRESHOLD})",
+        f"LOW 指摘 {len(comments)} 件 (streak {new_streak}/{threshold})",
     )
 
 
@@ -807,7 +811,12 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    allow, new_streak, reason = _decide(filtered_comments, streak)
+    low_streak_threshold = review_config.precommit_max_reviews()
+    allow, new_streak, reason = _decide(
+        filtered_comments,
+        streak,
+        threshold=low_streak_threshold,
+    )
 
     print(f"[precommit-review] {reason}", file=sys.stderr)
     summary = str(review.get("summary", "")).strip()
@@ -832,7 +841,7 @@ def main(argv: list[str] | None = None) -> int:
     if allow:
         print("[precommit-review] commit allowed.", file=sys.stderr)
         return 0
-    remaining = _LOW_STREAK_THRESHOLD - new_streak
+    remaining = low_streak_threshold - new_streak
     print(
         "[precommit-review] commit BLOCKED. 修正して再 add するか、"
         f"LOW 指摘のみが続く場合はあと {remaining} 回で抜けられます。",
