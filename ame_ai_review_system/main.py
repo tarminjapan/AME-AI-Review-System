@@ -557,26 +557,31 @@ def _post_limit_notice(
 
     ``pr_max_reviews`` (Issue #129) に達してレビューをスキップすると PR 上では
     無言のまま review が止まるため、開発者が「なぜ黙ったか」を把握できるよう
-    マーカー付きコメントを一度だけ投稿する。``_post_skip_notice`` と同じ重複防止
-    パターン (marker + issue_url) を再利用する。
+    マーカー付きコメントを一度だけ投稿する。重複防止は対象 PR にスコープした
+    issue コメントをページング走査して判定する (リポジトリ全体の直近 N 件ではなく
+    PR 単位で判定することで、アクティブなリポジトリでも確実に検知できる)。
     """
     notice_url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments"
     marker = f"{LIMIT_NOTICE_MARKER}-pr{pr_number}"
     issue_url = f"{api_url}/repos/{repo}/issues/{pr_number}"
     try:
-        existing = github_client.http_request(
-            "GET",
-            f"{api_url}/repos/{repo}/issues/comments"
-            f"?sort=created&direction=desc&per_page={SKIP_NOTICE_PAGE_SIZE}",
-            token,
-        )
         already_posted = False
-        if isinstance(existing, list):
-            already_posted = skip_notice_already_posted(
-                cast("list[dict[str, Any]]", existing),
-                marker,
-                issue_url,
+        page = 1
+        while page <= SKIP_NOTICE_MAX_PAGES:
+            resp = github_client.http_request(
+                "GET",
+                f"{notice_url}?per_page={SKIP_NOTICE_PAGE_SIZE}&page={page}",
+                token,
             )
+            if not isinstance(resp, list) or not resp:
+                break
+            resp_list = cast("list[dict[str, Any]]", resp)
+            if skip_notice_already_posted(resp_list, marker, issue_url):
+                already_posted = True
+                break
+            if len(resp_list) < SKIP_NOTICE_PAGE_SIZE:
+                break
+            page += 1
     except RuntimeError as e:
         print(
             f"[review] Failed to check existing limit notice: {e}",
