@@ -58,7 +58,8 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
   CLI 等を指定可能。Codingエージェントが差分外領域も自発的に探索し「コード修正に伴うドキュメント更新の有無」なども高度に検証する。
 - **コマンド駆動のレビュー**: PR コメントで `/request-review` を入力したタイミングでレビューが走る。
 - **pre-commit 時の AI レビュー**: `git commit`
-  時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ 2 回連続で無限ループ回避の escape
+  時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ
+  `precommit_max_reviews`（既定 3）回連続で無限ループ回避の escape
   hatch を用意。前段の静的解析 (ruff / mypy /
   semgrep) が全て pass した場合のみ AI レビューする。`precommit_require_static_checks`
   で ON/OFF 可能（デフォルト ON）。
@@ -74,6 +75,9 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
   thinking を個別設定可能。`review_model`/`reply_model`/
   `review_thinking`/`reply_thinking`。返信判定は haiku/low で推論トークンを削減。
 - **Stale-Loop 検出**: レビュアーが同じ指摘を言い換えて繰り返す膠着状態を Jaccard 類似度 (80%閾値) で検出し、強制 LGTM で膠着を打破する。
+- **最大ラウンド制限**: 無限レビュー防止のためレビュー回数に上限を設ける。Gate
+  1 は LOW/INFO のみ連続時の escape 閾値 `precommit_max_reviews`（既定 3）。Gate
+  2 は総レビュー回数のハード上限 `pr_max_reviews`（既定 3）。上限到達時は PR に一度だけ通知する。
 - **Diff 圧縮**: git
   diff のメタデータ行・バイナリ差分・連続空行を除去し（RTK アプローチ）、LLM 入力トークンを削減。
 - **実装エンジンの自動検出**: 実装に使っている AI ツールをプロセスツリーから自動検出する (`precommit_engine="auto"`)。OpenCode で実装していれば、使用したモデルに応じて同じ組合せでレビューする。PR レビューとは独立してエンジン/モデル/思考量を
@@ -81,6 +85,10 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
 - **ユーザー固有設定オーバーライド**:
   `config.user.json`（Git 管理対象外）で環境依存の設定（エンジン・モデル・思考量など）を上書き可能。`config.json`
   より優先される。
+- **グローバル設定**: `~/.config/ame-ai-review-system/config.json` にユーザー単位の共通設定（Gate
+  1 の `precommit_*`
+  キー）を配置可能。優先順位は 環境変数 > リポジトリ設定 > グローバル設定 > 自動検出。パスは
+  `AME_REVIEW_GLOBAL_CONFIG` で変更できる。
 - **簡単移植**: 2 つの導入方式を提供。
   - **wheel インストール（推奨）**: GitHub Release の wheel を `pip install`
     し、`ame-ai-reviewer init` で設定・ワークフローを生成する。CI は reusable

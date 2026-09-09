@@ -235,7 +235,7 @@ security-review-reply:
 - `true`: `ame_ai_review_system/` 配下もレビュー対象にする。このリポジトリ自身は
   `.ame-review/config.json` で `true` に設定している (配下のファイル更新もレビュー対象)。
 
-> モデルが壊れた JSON を返した場合は自動で JSON 修復を試みる。修復は最大 2 回まで試行される。修復専用モデルは
+> モデルが壊れた JSON を返した場合は自動で JSON 修復を試みる。修復は最大 3 回まで試行される（`review_repair_attempts`、既定 3）。修復専用モデルは
 > `review_repair_model` で指定できる (省略時は本体と同じモデル)。
 
 > `false` で変更が `ame_ai_review_system/`
