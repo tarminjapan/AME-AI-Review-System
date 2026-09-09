@@ -371,9 +371,9 @@ const FEATURE_DETAILS: FeatureDetail[] = [
   {
     title: "pre-commit 時の AI レビュー（Gate 1）",
     bodyJa:
-      "git commit 時にローカルで AI レビューが走り、指摘があればコミットをブロックします（既定 ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ 2 回連続で PASS となるエスケープハッチを用意しています。前段の静的解析（ruff / mypy / semgrep）が全て pass した場合のみ AI レビューします。precommit_require_static_checks で ON/OFF できます（既定 ON）。",
+      "git commit 時にローカルで AI レビューが走り、指摘があればコミットをブロックします（既定 ON）。PR レビューと同じプロンプトを使用し、LOW / INFO の指摘のみ precommit_max_reviews（既定 3）回連続で PASS となるエスケープハッチを用意しています。前段の静的解析（ruff / mypy / semgrep）が全て pass した場合のみ AI レビューします。precommit_require_static_checks で ON/OFF できます（既定 ON）。",
     bodyEn:
-      "Runs a local AI review on git commit and blocks the commit when issues are found (default ON). Uses the same prompt as PR review, with an escape hatch that PASSes after 2 consecutive LOW-only reviews. AI review runs only when the upstream static checks (ruff / mypy / semgrep) all pass. Toggle with precommit_require_static_checks (default ON).",
+      "Runs a local AI review on git commit and blocks the commit when issues are found (default ON). Uses the same prompt as PR review, with an escape hatch that PASSes after precommit_max_reviews (default 3) consecutive LOW / INFO-only reviews. AI review runs only when the upstream static checks (ruff / mypy / semgrep) all pass. Toggle with precommit_require_static_checks (default ON).",
   },
   {
     title: "Semgrep カスタムルール",
@@ -775,12 +775,12 @@ const Gate1Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
               "Only when all static checks pass, the local AI review (precommit_review.py) runs"
             ),
             l(
-              "レビュー結果で判定: 指摘 0 件 → PASS / CRITICAL・HIGH・MIDDLE あり → BLOCK / LOW のみ → streak を +1",
-              "Judgement: 0 issues → PASS / any CRITICAL・HIGH・MIDDLE → BLOCK / LOW-only → streak +1"
+              "レビュー結果で判定: 指摘 0 件 → PASS / CRITICAL・HIGH・MIDDLE あり → BLOCK / LOW / INFO のみ → streak を +1",
+              "Judgement: 0 issues → PASS / any CRITICAL・HIGH・MIDDLE → BLOCK / LOW / INFO-only → streak +1"
             ),
             l(
-              "LOW のみの指摘が 2 回連続するとエスケープハッチが発動して PASS（無限ループ回避）",
-              "The escape hatch PASSes after 2 consecutive LOW-only reviews (avoids infinite loops)"
+              "LOW / INFO のみの指摘が precommit_max_reviews（既定 3）回連続するとエスケープハッチが発動して PASS（無限ループ回避）",
+              "The escape hatch PASSes after precommit_max_reviews (default 3) consecutive LOW / INFO-only reviews (avoids infinite loops)"
             ),
             l(
               "コミット成功後、post-commit フックが streak カウンタをリセット",
@@ -797,7 +797,7 @@ const Gate1Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
           head={[l("条件", "Condition"), l("動作", "Behavior")]}
           rows={[
             [
-              l("LOW のみの指摘が 2 回連続", "2 consecutive LOW-only reviews"),
+              l("LOW / INFO のみの指摘が 3 回連続", "3 consecutive LOW / INFO-only reviews"),
               l("PASS（コミット許可）", "PASS (commit allowed)"),
             ],
             [
@@ -848,6 +848,14 @@ const Gate1Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
               l(
                 "静的解析がエラーの場合に AI レビューをスキップするか",
                 "Skip the AI review when static checks error"
+              ),
+            ],
+            [
+              <DocInline key="pmr">precommit_max_reviews</DocInline>,
+              "3",
+              l(
+                "LOW / INFO のみ連続時の escape 閾値（この回数でコミット許可）",
+                "LOW / INFO-only consecutive escape threshold (commit allowed after this many)"
               ),
             ],
             [
@@ -943,8 +951,8 @@ const Gate2Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
               "AI review runs only when static checks report 0 errors; otherwise it skips with “Skipping AI review” to save tokens"
             ),
             l(
-              "同一 HEAD SHA は再レビューせずスキップ（reviewed-sha マーカーで重複を防止）。PR ごとのレビュー回数は最大 10 回",
-              "The same HEAD SHA is not re-reviewed (deduplicated via the reviewed-sha marker). Max 10 review rounds per PR"
+              "同一 HEAD SHA は再レビューせずスキップ（reviewed-sha マーカーで重複を防止）。PR ごとのレビュー回数は最大 pr_max_reviews（既定 3）回",
+              "The same HEAD SHA is not re-reviewed (deduplicated via the reviewed-sha marker). Max pr_max_reviews (default 3) review rounds per PR"
             ),
             l(
               "指摘は PR のインラインコメントとして投稿。重大度は CRITICAL / HIGH / MIDDLE / LOW の 4 段階",
@@ -1002,6 +1010,14 @@ const Gate2Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
               l(
                 "PR レビューの Circuit Breaker を有効にするか",
                 "Enable the Circuit Breaker for PR reviews"
+              ),
+            ],
+            [
+              <DocInline key="pmax">pr_max_reviews</DocInline>,
+              "3",
+              l(
+                "Gate 2 の総レビュー回数ハード上限（到達で Gate 2 終了）",
+                "Hard cap on total Gate 2 review rounds (ends Gate 2 when reached)"
               ),
             ],
             [
@@ -1075,8 +1091,8 @@ const ConfigJsonPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ 
       <DocH1>{t.pageConfigJson}</DocH1>
       <DocP>
         {l(
-          "config.json は ame_ai_review_system/config.json（または .ame-review/config.json）に配置します。既定値 → config.json → config.user.json の順にマージされ、後者が優先されます。",
-          "config.json lives at ame_ai_review_system/config.json (or .ame-review/config.json). Settings are merged in the order defaults → config.json → config.user.json, with the later taking priority."
+          "config.json は ame_ai_review_system/config.json（または .ame-review/config.json）に配置します。既定値 → グローバル設定 → config.json → config.user.json の順にマージされ、後者が優先されます。",
+          "config.json lives at ame_ai_review_system/config.json (or .ame-review/config.json). Settings are merged in the order defaults → global config → config.json → config.user.json, with the later taking priority."
         )}
       </DocP>
 
@@ -1101,11 +1117,27 @@ const ConfigJsonPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ 
               ),
             ],
             [
+              "precommit_max_reviews",
+              "3",
+              l(
+                "Gate 1 の LOW / INFO のみ連続時の escape 閾値（この回数でコミット許可）",
+                "Gate 1 LOW / INFO-only consecutive escape threshold (commit allowed after this many)"
+              ),
+            ],
+            [
               "pr_review_require_static_checks",
               "true",
               l(
                 "Gate 2（PR）の Circuit Breaker（静的解析失敗時に AI レビューをスキップ）を有効にするか",
                 "Enable the Gate 2 (PR) Circuit Breaker that skips AI review on static check errors"
+              ),
+            ],
+            [
+              "pr_max_reviews",
+              "3",
+              l(
+                "Gate 2 の総レビュー回数ハード上限（到達で Gate 2 終了）",
+                "Hard cap on total Gate 2 review rounds (ends Gate 2 when reached)"
               ),
             ],
             [
@@ -1270,6 +1302,10 @@ const ConfigJsonPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ 
               "Built-in defaults (_DEFAULTS in review_config.py)"
             ),
             l(
+              "グローバル設定（~/.config/ame-ai-review-system/config.json。Gate 1 の precommit_* キーのみ。AME_REVIEW_GLOBAL_CONFIG でパス上書き可）",
+              "Global config (~/.config/ame-ai-review-system/config.json; Gate 1 precommit_* keys only; path overridable via AME_REVIEW_GLOBAL_CONFIG)"
+            ),
+            l(
               "config.json（環境変数 AME_REVIEW_CONFIG でパスを上書き可能）",
               "config.json (path overridable via AME_REVIEW_CONFIG)"
             ),
@@ -1318,6 +1354,13 @@ const EnvVarsPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, 
               l("config.user.json のパスを上書き", "Overrides the config.user.json path"),
             ],
             [
+              "AME_REVIEW_GLOBAL_CONFIG",
+              l(
+                "グローバル設定（~/.config/ame-ai-review-system/config.json）のパスを上書き",
+                "Overrides the global config path (~/.config/ame-ai-review-system/config.json)"
+              ),
+            ],
+            [
               "AME_REVIEW_PROJECT_ROOT",
               l("プロジェクトルートを上書き", "Overrides the project root"),
             ],
@@ -1332,6 +1375,13 @@ const EnvVarsPage: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, 
               l("GitHub REST/GraphQL のリポジトリ・URL", "GitHub REST/GraphQL repository and URLs"),
             ],
             ["BASE_REF", l("ベースブランチ（既定 main）", "Base branch (default main)")],
+            [
+              "GIT_TIMEOUT_SECONDS",
+              l(
+                "git fetch 等のタイムアウト秒（既定 300）",
+                "git fetch timeout in seconds (default 300)"
+              ),
+            ],
             [
               "PR_TITLE / PR_BODY / GITHUB_ENV",
               l("checkout コマンドの出力先", "checkout command output targets"),
@@ -1462,7 +1512,9 @@ const ConfigExamplesPage: React.FC<{ t: TranslationResource; locale: Locale }> =
           {`{
   "precommit_review_enabled": true,
   "precommit_require_static_checks": true,
+  "precommit_max_reviews": 3,
   "pr_review_require_static_checks": true,
+  "pr_max_reviews": 3,
   "ai_review_enforce_no_skip": true,
   "review_include_package_dir": false,
   "precommit_engine": "auto",
@@ -1775,8 +1827,8 @@ const TroubleshootingPage: React.FC<{ t: TranslationResource; locale: Locale }> 
           [
             l("レビューが実行されない（スキップ）", "Reviews are skipped"),
             l(
-              "/request-review 未入力、同一 HEAD SHA の重複、GitHub App の認証無効、レビュー回数上限（既定 10 回）を確認してください",
-              "Check for a missing /request-review, duplicate HEAD SHA, invalid GitHub App auth, or the review round limit (default 10)"
+              "/request-review 未入力、同一 HEAD SHA の重複、GitHub App の認証無効、レビュー回数上限（既定 3 回）を確認してください",
+              "Check for a missing /request-review, duplicate HEAD SHA, invalid GitHub App auth, or the review round limit (default 3)"
             ),
           ],
           [
