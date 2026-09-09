@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-09-09
+
+### Fixed
+
+- ドキュメント・ランディングページを v0.2.10 の実装と整合させた（ドキュメントのみの変更。コード動作は不変）。
+  - ランディングページの PR レビュー回数「最大 10 回」を `pr_max_reviews`（既定 3 回）へ修正。Gate
+    1 の LOW / INFO escape も `precommit_max_reviews`（既定 3 回）に合わせた。
+  - README / docs / ランディングの「LOW / INFO」表記を実装（`precommit_review.py` の
+    `_LOW_SEVERITIES`）に合わせて統一。
+  - `setup.md` / `customization.md` の JSON 修復回数を最大 3 回（`review_repair_attempts`
+    既定 3）へ修正。
+  - README・ランディングに「最大ラウンド制限」「グローバル設定」などの欠落機能と設定キーを追記。
+  - ランディングのバージョンバッジを v0.2.11 へ更新。
+
 ## [0.2.10] - 2026-09-09
 
 ### Added
