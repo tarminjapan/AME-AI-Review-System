@@ -31,7 +31,7 @@ describe("App Component", () => {
 
   it("shows the current version badge", () => {
     render(<App />);
-    expect(screen.getAllByText("v0.2.10").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("v0.2.11").length).toBeGreaterThan(0);
   });
 
   it("renders the hero header image on the overview page", () => {
