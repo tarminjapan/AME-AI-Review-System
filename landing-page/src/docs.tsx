@@ -371,9 +371,9 @@ const FEATURE_DETAILS: FeatureDetail[] = [
   {
     title: "pre-commit 時の AI レビュー（Gate 1）",
     bodyJa:
-      "git commit 時にローカルで AI レビューが走り、指摘があればコミットをブロックします（既定 ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ precommit_max_reviews（既定 3）回連続で PASS となるエスケープハッチを用意しています。前段の静的解析（ruff / mypy / semgrep）が全て pass した場合のみ AI レビューします。precommit_require_static_checks で ON/OFF できます（既定 ON）。",
+      "git commit 時にローカルで AI レビューが走り、指摘があればコミットをブロックします（既定 ON）。PR レビューと同じプロンプトを使用し、LOW / INFO の指摘のみ precommit_max_reviews（既定 3）回連続で PASS となるエスケープハッチを用意しています。前段の静的解析（ruff / mypy / semgrep）が全て pass した場合のみ AI レビューします。precommit_require_static_checks で ON/OFF できます（既定 ON）。",
     bodyEn:
-      "Runs a local AI review on git commit and blocks the commit when issues are found (default ON). Uses the same prompt as PR review, with an escape hatch that PASSes after precommit_max_reviews (default 3) consecutive LOW-only reviews. AI review runs only when the upstream static checks (ruff / mypy / semgrep) all pass. Toggle with precommit_require_static_checks (default ON).",
+      "Runs a local AI review on git commit and blocks the commit when issues are found (default ON). Uses the same prompt as PR review, with an escape hatch that PASSes after precommit_max_reviews (default 3) consecutive LOW / INFO-only reviews. AI review runs only when the upstream static checks (ruff / mypy / semgrep) all pass. Toggle with precommit_require_static_checks (default ON).",
   },
   {
     title: "Semgrep カスタムルール",
@@ -775,12 +775,12 @@ const Gate1Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
               "Only when all static checks pass, the local AI review (precommit_review.py) runs"
             ),
             l(
-              "レビュー結果で判定: 指摘 0 件 → PASS / CRITICAL・HIGH・MIDDLE あり → BLOCK / LOW のみ → streak を +1",
-              "Judgement: 0 issues → PASS / any CRITICAL・HIGH・MIDDLE → BLOCK / LOW-only → streak +1"
+              "レビュー結果で判定: 指摘 0 件 → PASS / CRITICAL・HIGH・MIDDLE あり → BLOCK / LOW / INFO のみ → streak を +1",
+              "Judgement: 0 issues → PASS / any CRITICAL・HIGH・MIDDLE → BLOCK / LOW / INFO-only → streak +1"
             ),
             l(
-              "LOW のみの指摘が precommit_max_reviews（既定 3）回連続するとエスケープハッチが発動して PASS（無限ループ回避）",
-              "The escape hatch PASSes after precommit_max_reviews (default 3) consecutive LOW-only reviews (avoids infinite loops)"
+              "LOW / INFO のみの指摘が precommit_max_reviews（既定 3）回連続するとエスケープハッチが発動して PASS（無限ループ回避）",
+              "The escape hatch PASSes after precommit_max_reviews (default 3) consecutive LOW / INFO-only reviews (avoids infinite loops)"
             ),
             l(
               "コミット成功後、post-commit フックが streak カウンタをリセット",
@@ -797,7 +797,7 @@ const Gate1Page: React.FC<{ t: TranslationResource; locale: Locale }> = ({ t, lo
           head={[l("条件", "Condition"), l("動作", "Behavior")]}
           rows={[
             [
-              l("LOW のみの指摘が 3 回連続", "3 consecutive LOW-only reviews"),
+              l("LOW / INFO のみの指摘が 3 回連続", "3 consecutive LOW / INFO-only reviews"),
               l("PASS（コミット許可）", "PASS (commit allowed)"),
             ],
             [

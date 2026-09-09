@@ -58,8 +58,8 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
   CLI 等を指定可能。Codingエージェントが差分外領域も自発的に探索し「コード修正に伴うドキュメント更新の有無」なども高度に検証する。
 - **コマンド駆動のレビュー**: PR コメントで `/request-review` を入力したタイミングでレビューが走る。
 - **pre-commit 時の AI レビュー**: `git commit`
-  時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW レベル指摘のみ
-  `precommit_max_reviews`（既定 3）回連続で無限ループ回避の escape
+  時にローカルで AI レビューが走り、指摘があればコミットをブロックする（デフォルト ON）。PR レビューと同じプロンプトを使用し、LOW
+  / INFO の指摘のみ `precommit_max_reviews`（既定 3）回連続で無限ループ回避の escape
   hatch を用意。前段の静的解析 (ruff / mypy /
   semgrep) が全て pass した場合のみ AI レビューする。`precommit_require_static_checks`
   で ON/OFF 可能（デフォルト ON）。
