@@ -105,7 +105,7 @@ export const translations: Record<Locale, TranslationResource> = {
   ja: {
     title: "AME-AI-Review-System",
     githubRepo: "GitHub リポジトリ",
-    badgeVersion: "v0.2.11",
+    badgeVersion: "v0.2.12",
     heroTitle1: "デュアルゲートAIコードレビュー",
     heroTitleAccent: "厳格な静的解析とAIエージェント",
     heroTitle2: "が品質向上をサポート",
@@ -217,7 +217,7 @@ export const translations: Record<Locale, TranslationResource> = {
   en: {
     title: "AME-AI-Review-System",
     githubRepo: "GitHub Repo",
-    badgeVersion: "v0.2.11",
+    badgeVersion: "v0.2.12",
     heroTitle1: "Dual-Gate AI Code Review",
     heroTitleAccent: "Strict Static Checks & AI Agents",
     heroTitle2: "Support Quality Improvement",

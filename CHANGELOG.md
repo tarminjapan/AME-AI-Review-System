@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-09-10
+
+### Fixed
+
+- Gate 1 (pre-commit) に「重大度によらない総レビュー回数のハード上限」を実装した (Issue #134)。
+  - `precommit_review._decide` を Gate
+    2 と対称な 2 つの独立 escape 機構へ変更。LOW/INFO のみ連続の escape 閾値は固定 2 回（`review_config.LOW_STREAK_THRESHOLD`
+    として Gate 1 / Gate 2 で共有）。
+  - `precommit_max_reviews`（既定 3 回）は重大度によらない総ラウンド数上限として独立に働く。blocking 指摘（MIDDLE 以上）が残っていても上限到達時にコミットを許可し、警告を出力する（無限ループ防止）。
+  - `precommit_max_reviews` が LOW 連続閾値以下（1〜2）の場合は `3`
+    にクランプし、blocking 指摘の早期通過を防止。
+  - pre-commit state に `total_review_count` を追加（post-commit でリセット）。
+
 ## [0.2.11] - 2026-09-09
 
 ### Fixed
