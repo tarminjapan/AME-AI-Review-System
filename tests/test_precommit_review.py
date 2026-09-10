@@ -1053,14 +1053,16 @@ def test_main_low_only_at_threshold_passes(
     monkeypatch: pytest.MonkeyPatch,
     env: dict[str, Any],
 ) -> None:
+    # Issue #134: LOW のみ連続 escape の閾値は固定 2。streak 1 → 2 で PASS する
+    # ちょうどの境界を検証する。
     precommit_state.write_state(
         env["state_path"],
-        {"branches": {"feature": {"low_only_streak": 2}}},
+        {"branches": {"feature": {"low_only_streak": 1}}},
     )
     _engine_returning(
         monkeypatch,
         {
-            "summary": "low only 3rd",
+            "summary": "low only 2nd",
             "comments": [
                 {
                     "path": "f",
@@ -1075,7 +1077,7 @@ def test_main_low_only_at_threshold_passes(
     rc = precommit_review.main([])
     assert rc == 0
     state = precommit_state.read_state(env["state_path"])
-    assert state["branches"]["feature"]["low_only_streak"] == 3
+    assert state["branches"]["feature"]["low_only_streak"] == 2
 
 
 def test_main_blocking_increments_total_review_count(
