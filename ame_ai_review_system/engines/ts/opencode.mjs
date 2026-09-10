@@ -40,9 +40,9 @@ const MAX_PROMPT_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 5000;
 
 // Issue #137: finish=length で空応答した際に variant を順に下げてリトライする。
-// high→medium→low の順に reasoning を減らす。low の次は undefined (= サーバー既定)
-// だが、server default はむしろ reasoning が高くなり得るため lowest 到達後は
-// 下げず、同じ variant で再試行する (下記リトライ分岐)。
+// high→medium→low と reasoning を減らす。step down 先が無い場合（low 起点や
+// --variant 未指定のサーバー既定）は variant を変えず、MAX_LENGTH_RETRIES の残余を
+// 同じ variant の再試行に使う（非決定性回復, Issue #137）。
 const MAX_LENGTH_RETRIES = 2;
 const VARIANT_STEP_DOWN = { high: "medium", medium: "low", low: undefined };
 

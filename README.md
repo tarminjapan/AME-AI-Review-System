@@ -80,6 +80,11 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
   2 は総レビュー回数のハード上限 `pr_max_reviews`（既定 3）。上限到達時は PR に一度だけ通知する。
 - **Diff 圧縮**: git
   diff のメタデータ行・バイナリ差分・連続空行を除去し（RTK アプローチ）、LLM 入力トークンを削減。
+- **プロンプト・スリミング（Issue #137）**: Gate
+  1 は差分をプロンプトへ埋め込む際、既定では「ステージ済み差分（今回のコミット対象）」のみを含める。ブランチ累積差分（`git diff <base>...HEAD`）はステージ済み差分と重複し reasoning 予算を圧迫して
+  `finish=length` 空応答を招くため、`include_branch_diff`（既定
+  `false`）で制御する。スタックブランチ等で分岐元の文脈が必要な場合のみ、`config.json` に
+  `"include_branch_diff": true` を設定して有効化する。
 - **実装エンジンの自動検出**: 実装に使っている AI ツールをプロセスツリーから自動検出する (`precommit_engine="auto"`)。OpenCode で実装していれば、使用したモデルに応じて同じ組合せでレビューする。PR レビューとは独立してエンジン/モデル/思考量を
   `config.json` の `precommit_*` キーや環境変数で上書き可能。
 - **ユーザー固有設定オーバーライド**:

@@ -225,16 +225,21 @@ def _build_diff(base_ref: str, staged_files: list[str]) -> str:
         )
     # Issue #55 I1: スタックブランチでは origin/{base} との累積差分が過大になるため、
     # 分岐元 (upstream / fork-point) を自動解決する。
-    branch_range = diff_base.diff_range(base_ref)
-    branch_diff = _sanitize_for_codeblock(
-        review_config.filter_review_diff(
-            precommit_state.run_git(["diff", branch_range]).strip(),
-        ),
-    )
-    if branch_diff:
-        parts.append(
-            f"### ブランチ差分 ({branch_range})\n\n```diff\n" + branch_diff + "\n```",
+    # Issue #137: ブランチ差分はステージ済み差分と重複し reasoning 予算を圧迫するため、
+    # 既定では含めない (include_branch_diff: true で従来どおり含める)。
+    if review_config.include_branch_diff():
+        branch_range = diff_base.diff_range(base_ref)
+        branch_diff = _sanitize_for_codeblock(
+            review_config.filter_review_diff(
+                precommit_state.run_git(["diff", branch_range]).strip(),
+            ),
         )
+        if branch_diff:
+            parts.append(
+                f"### ブランチ差分 ({branch_range})\n\n```diff\n"
+                + branch_diff
+                + "\n```",
+            )
     # Issue #55 B1: テストのみのステージ時にテスト対象モジュールの実装コンテキストを提示する。
     test_target = _test_target_diff(staged_files)
     if test_target:

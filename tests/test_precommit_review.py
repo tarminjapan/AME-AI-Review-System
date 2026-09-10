@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from ame_ai_review_system import (
+    diff_base,
     paths,
     post_commit_reset,
     precommit_review,
@@ -1421,3 +1422,44 @@ def test_post_commit_reset_creates_state_if_missing(
     assert rc == 0
     state = precommit_state.read_state(state_path)
     assert state["branches"]["feature"]["low_only_streak"] == 0
+
+
+# ---------------------------
+# _build_diff / include_branch_diff (Issue #137)
+# ---------------------------
+
+
+def _stub_diff_build_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # _build_diff が読む外部依存を決定的にする。
+    monkeypatch.setattr(review_config, "filter_review_diff", lambda s: s)
+    monkeypatch.setattr(
+        precommit_state,
+        "run_git",
+        lambda args: "STAGED" if args == ["diff", "--cached"] else "BRANCH",
+    )
+    monkeypatch.setattr(diff_base, "diff_range", lambda _b: "main...HEAD")
+
+
+def test_build_diff_omits_branch_diff_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #137: 既定ではステージ済み差分のみ埋め込み、ブランチ差分は含めない。
+    _stub_diff_build_env(monkeypatch)
+    monkeypatch.setattr(review_config, "include_branch_diff", lambda: False)
+    out = precommit_review._build_diff("main", ["a.py"])
+    assert "ステージ済み差分" in out
+    assert "STAGED" in out
+    assert "ブランチ差分" not in out
+    assert "BRANCH" not in out
+
+
+def test_build_diff_includes_branch_diff_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # config で include_branch_diff: true なら従来どおりブランチ差分を含める。
+    _stub_diff_build_env(monkeypatch)
+    monkeypatch.setattr(review_config, "include_branch_diff", lambda: True)
+    out = precommit_review._build_diff("main", ["a.py"])
+    assert "ステージ済み差分" in out
+    assert "ブランチ差分" in out
+    assert "BRANCH" in out

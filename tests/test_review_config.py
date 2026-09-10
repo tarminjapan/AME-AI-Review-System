@@ -917,3 +917,22 @@ def _capture(fn: Callable[[], int]) -> str:
     with redirect_stdout(buf):
         fn()
     return buf.getvalue()
+
+
+# ---------------------------
+# include_branch_diff (Issue #137)
+# ---------------------------
+
+
+def test_include_branch_diff_defaults_false() -> None:
+    # Issue #137: ブランチ累積差分は既定で含めない。
+    assert review_config.include_branch_diff({"other": 1}) is False
+
+
+def test_include_branch_diff_true_when_set() -> None:
+    assert review_config.include_branch_diff({"include_branch_diff": True}) is True
+
+
+def test_include_branch_diff_string_false() -> None:
+    # config.user.json で "false" が文字列でも false と解釈する。
+    assert review_config.include_branch_diff({"include_branch_diff": "false"}) is False
