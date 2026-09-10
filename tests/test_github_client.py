@@ -713,3 +713,99 @@ def test_resolve_review_thread_no_match_raises(
     monkeypatch.setattr(github_client, "list_review_threads", fake_list)
     with pytest.raises(RuntimeError, match="Review thread not found for comment 999"):
         github_client.resolve_review_thread(7, 999, "tok")
+
+
+# ============================================================================
+# list_commit_check_runs (Issue #140)
+# ============================================================================
+
+
+def test_list_commit_check_runs_single_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[str] = []
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        _token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        captured.append(url)
+        return {
+            "total_count": 2,
+            "check_runs": [
+                {"name": "backend", "conclusion": "success"},
+                {"name": "typegen-check", "conclusion": "failure"},
+            ],
+        }
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    runs = github_client.list_commit_check_runs(
+        "https://api.github.com", "AME-Team/AME-AI-Review-System", "a" * 40, "tok"
+    )
+    assert [r["name"] for r in runs] == ["backend", "typegen-check"]
+    assert captured == [
+        "https://api.github.com/repos/AME-Team/AME-AI-Review-System/commits/"
+        + "a" * 40
+        + "/check-runs?per_page=100&page=1"
+    ]
+
+
+def test_list_commit_check_runs_paginates(monkeypatch: pytest.MonkeyPatch) -> None:
+    pages = iter([
+        {"check_runs": [{"name": f"job{i}"} for i in range(100)]},
+        {"check_runs": [{"name": "last"}]},
+    ])
+
+    def fake_http_request(
+        _method: str,
+        _url: str,
+        _token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> Any:
+        return next(pages)
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    runs = github_client.list_commit_check_runs(
+        "https://api.github.com", "o/r", "b" * 40, "tok"
+    )
+    assert len(runs) == 101
+
+
+def test_list_commit_check_runs_non_dict_returns_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_http_request(
+        _method: str,
+        _url: str,
+        _token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> Any:
+        return ["unexpected"]
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    assert github_client.list_commit_check_runs("u", "o/r", "c" * 40, "tok") == []
+
+
+def test_list_commit_check_runs_stops_at_page_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 異常応答が常に per_page 件返しても無限リクエストしない (Gate 1 指摘)。
+    calls = 0
+
+    def fake_http_request(
+        _method: str,
+        _url: str,
+        _token: str,
+        body: dict[str, Any] | None = None,
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {"check_runs": [{"name": f"job{calls}-{i}"} for i in range(100)]}
+
+    monkeypatch.setattr(github_client, "http_request", fake_http_request)
+    github_client.list_commit_check_runs("u", "o/r", "d" * 40, "tok")
+    assert calls == github_client.MAX_CHECK_RUN_PAGES

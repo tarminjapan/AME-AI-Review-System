@@ -5,7 +5,7 @@ import argparse
 from typing import Any
 
 import pytest
-from ame_ai_review_system import github_client, main
+from ame_ai_review_system import github_client, main, review_config
 from ame_ai_review_system.main import (
     LIMIT_NOTICE_MARKER,
     SKIP_NOTICE_MARKER,
@@ -466,3 +466,123 @@ def test_cmd_review_skips_at_pr_max_reviews(
     assert any(
         method == "POST" and LIMIT_NOTICE_MARKER in body for method, url, body in calls
     )
+
+
+# --- external CI gate (Issue #140) -------------------------------------------
+
+
+def test_post_external_ci_notice_posts_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    posts: list[str] = []
+
+    def _fake_http(method: str, url: str, _token: str, **_kw: Any) -> Any:
+        if method == "POST":
+            posts.append(url)
+        return []
+
+    monkeypatch.setattr(github_client, "http_request", _fake_http)
+    main._post_external_ci_notice(
+        "https://api.github.com",
+        "AME-Team/AME-AI-Review-System",
+        38,
+        "tok",
+        ["typegen-check"],
+    )
+    assert len(posts) == 1
+    assert "issues/38/comments" in posts[0]
+
+
+def test_post_external_ci_notice_dedups_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # マーカー付き通知が既にある場合は二重投稿しない (skip_notice と同パターン)。
+    marker = f"{main.EXTERNAL_CI_NOTICE_MARKER}-pr38"
+    issue_url = "https://api.github.com/repos/AME-Team/AME-AI-Review-System/issues/38"
+    posts: list[str] = []
+
+    def _fake_http(method: str, url: str, _token: str, **_kw: Any) -> Any:
+        if method == "GET":
+            return [{"body": f"<!-- {marker} -->", "issue_url": issue_url}]
+        if method == "POST":
+            posts.append(url)
+        return []
+
+    monkeypatch.setattr(github_client, "http_request", _fake_http)
+    main._post_external_ci_notice(
+        "https://api.github.com",
+        "AME-Team/AME-AI-Review-System",
+        38,
+        "tok",
+        ["typegen-check"],
+    )
+    assert posts == []
+
+
+def test_cmd_review_skips_on_external_ci_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #140: 外部 CI が失敗中の HEAD SHA では AI レビューをスキップし通知する。
+    import subprocess
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", "AME-Team/AME-AI-Review-System")
+    monkeypatch.setenv("GITHUB_API_URL", "https://api.github.com")
+    monkeypatch.delenv("AME_REVIEW_CHECKS_TOKEN", raising=False)
+    sha = "a" * 40
+    posts: list[str] = []
+
+    def _fake_http(method: str, url: str, _token: str, **_kw: Any) -> Any:
+        if method == "POST":
+            posts.append(url)
+        return []  # reviews も comment 既存確認も空
+
+    def _fake_run_git(args: list[str], **kwargs: Any) -> str:
+        if args[:2] == ["rev-parse", "HEAD"]:
+            return sha
+        if args[:1] == ["diff"] and len(args) > 1 and args[1].startswith("origin/"):
+            return (
+                "diff --git a/x.py b/x.py\n"
+                "index 0000000..1111111 100644\n"
+                "--- a/x.py\n"
+                "+++ b/x.py\n"
+                "@@ -0,0 +1 @@\n"
+                "+print('hi')\n"
+            )
+        if args[:2] == ["diff", "--name-only"]:
+            return "x.py"
+        if args[:1] == ["log"]:
+            return "deadbeef fix"
+        return ""
+
+    monkeypatch.setattr(review_config, "pr_review_require_external_ci", lambda _c: True)
+    monkeypatch.setattr(
+        github_client,
+        "list_commit_check_runs",
+        lambda *_a, **_kw: [
+            {"name": "typegen-check", "conclusion": "failure", "status": "completed"}
+        ],
+    )
+    monkeypatch.setattr(github_client, "http_request", _fake_http)
+    monkeypatch.setattr(main, "_run_git", _fake_run_git)
+    monkeypatch.setattr("ame_ai_review_system.pr_streak.cmd_check", lambda *_a: 1)
+    # 静的解析 precheck を成功扱いにする。
+    monkeypatch.setattr(
+        subprocess, "run", lambda *_a, **_kw: type("R", (), {"returncode": 0})()
+    )
+
+    fake_token = "tok"
+    args = argparse.Namespace(
+        pr_number=38,
+        base_ref="main",
+        pr_title="",
+        pr_body="",
+        prompt_file=None,
+        token=fake_token,
+    )
+    assert main.cmd_review(args) == 0
+    captured = capsys.readouterr()
+    assert "skipping AI review" in captured.out
+    # checks トークン未設定時は縮退を警告で可視化する (Gate 2 指摘)。
+    assert "AME_REVIEW_CHECKS_TOKEN is not set" in captured.err
+    assert any("issues/38/comments" in u for u in posts)
