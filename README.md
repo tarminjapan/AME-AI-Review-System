@@ -66,6 +66,10 @@ Release の wheel）または `.github/` と `ame_ai_review_system/` のコピ�
 - **PR レビューの Circuit Breaker**: `/request-review` 実行時に ruff / mypy /
   semgrep の静的解析を先行実行する。1件でもエラーがあれば AI レビューをスキップしてトークン消費を抑制する。`pr_review_require_static_checks`
   で ON/OFF 可能（デフォルト ON）。
+- **外部 CI の合否ゲート（Issue #140）**: `pr_review_require_external_ci`（既定
+  `false`）で有効化する。 `/request-review` 実行時に HEAD SHA の check
+  runs を参照する。外部 CI に失敗があれば AI レビューをスキップして PR へ通知する。読み取りには
+  `GITHUB_TOKEN` の `checks: read` を使い、GitHub App 権限には依存しない。
 - **Semgrep カスタムルール**: CLAUDE.md §8 のコーディング規約を Semgrep で機械的に検出する。broad
   exception catch 禁止・kill -15 $pids 禁止・echo|python3 -c 禁止 等。ルールは
   `ame_ai_review_system/.semgrep/rules.yml`。

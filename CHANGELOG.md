@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Gate 2 (`/request-review`) が外部 CI の合否を無視していた問題を修正した (Issue
+  #140)。外部 CI が失敗中のコミットでは AI レビューをスキップして PR へ通知する。
+  - `pr_review_require_external_ci`（既定 `false`）で有効化する。
+  - check runs の読み取りは `GITHUB_TOKEN`（`checks: read`）で行う。これにより GitHub
+    App 権限に依存しない。
+
 ## [0.2.13] - 2026-09-10
 
 ### Fixed
