@@ -25,9 +25,26 @@ class EngineError extends Error {
   }
 }
 
+// finish=length で output=0 になったことを表す業務エラー。EngineError を継承し、
+// リトライを使い切った後の最終送出でも main().catch / ts_runner 側で「業務エラー」
+// として扱えるようにする（Issue #137）。
+class LengthExhaustedError extends EngineError {
+  constructor(message) {
+    super(message);
+    this.name = "LengthExhaustedError";
+  }
+}
+
 // Issue #113: 一時的な接続・ヘッダータイムアウトは retry で回復できる。
 const MAX_PROMPT_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 5000;
+
+// Issue #137: finish=length で空応答した際に variant を順に下げてリトライする。
+// high→medium→low と reasoning を減らす。step down 先が無い場合（low 起点や
+// --variant 未指定のサーバー既定）は variant を変えず、MAX_LENGTH_RETRIES の残余を
+// 同じ variant の再試行に使う（非決定性回復, Issue #137）。
+const MAX_LENGTH_RETRIES = 2;
+const VARIANT_STEP_DOWN = { high: "medium", medium: "low", low: undefined };
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -105,6 +122,7 @@ async function runPromptOnce(client, prompt, opts) {
         tools: opts.toolsOff,
         system: opts.system,
         ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.variant ? { variant: opts.variant } : {}),
       },
     });
 
@@ -118,6 +136,15 @@ async function runPromptOnce(client, prompt, opts) {
     const payload = result && (result.data || result.response);
     const text = extractText(payload);
     if (!text.trim()) {
+      // Issue #137: reasoning 予算を使い切り output が 0 のまま finish=length に
+      // なったケースは、variant を下げたリトライで回復し得るため専用エラーにする。
+      const info = payload && payload.info;
+      const tokens = info && info.tokens;
+      if (info && info.finish === "length" && tokens && tokens.output === 0) {
+        throw new LengthExhaustedError(
+          `finish=length with output=0 (reasoning=${tokens.reasoning})`
+        );
+      }
       const dump = JSON.stringify(payload ?? null).slice(0, 500);
       throw new EngineError(`could not extract text from response: ${dump}`);
     }
@@ -187,38 +214,66 @@ async function main() {
       "tool-call syntax. Respond ONLY with a single valid JSON object matching the requested " +
       "schema. Do not include any other text.";
 
-  // Issue #113: 接続エラー・ヘッダータイムアウトは一時的な場合が多いため、
-  // バックオフ付きで retry する。業務エラー (EngineError) は即時中断する。
-  let lastErr = null;
-  for (let attempt = 1; attempt <= MAX_PROMPT_ATTEMPTS; attempt++) {
+  // Issue #113: 接続エラー・ヘッダータイムアウトはバックオフ付きで retry。
+  // Issue #137: finish=length で空応答した場合は variant を下げてリトライし、
+  // 回復不能なら従来どおり業務エラーとして送出する。
+  let attempt = 0;
+  // opts.variant は parseArgs() が --variant <value> から設定する (opencode_ts.py が
+  // thinking → --variant を渡す)。値が無ければ undefined (サーバー既定) のまま。
+  let variant = opts.variant;
+  let lengthRetries = 0;
+  while (true) {
+    attempt++;
     try {
       const text = await runPromptOnce(client, prompt, {
         model,
         toolsOff,
         system,
+        variant,
       });
       process.stdout.write(text);
       return;
     } catch (err) {
-      lastErr = err;
-      if (!isRetryableError(err) || attempt === MAX_PROMPT_ATTEMPTS) {
-        throw err;
+      if (err instanceof LengthExhaustedError && lengthRetries < MAX_LENGTH_RETRIES) {
+        const next = VARIANT_STEP_DOWN[variant];
+        if (next !== undefined) {
+          // high→medium→low と reasoning を下げて再試行する。
+          variant = next;
+          console.error(
+            `[opencode.mjs] finish=length with empty output; retry ` +
+              `${lengthRetries + 1}/${MAX_LENGTH_RETRIES} with variant=${next}...`
+          );
+        } else {
+          // 既に最低段 (low / サーバー既定)。server default はむしろ reasoning が
+          // 高くなり得るため上げず、同じ variant で再試行する (非決定性回復, Issue #137)。
+          console.error(
+            `[opencode.mjs] finish=length with empty output; retry ` +
+              `${lengthRetries + 1}/${MAX_LENGTH_RETRIES} (variant stays ` +
+              `${variant ?? "server default"})...`
+          );
+        }
+        lengthRetries++;
+        attempt = 0; // 接続リトライ回数も振り直す
+        continue;
       }
-      const delay = RETRY_BASE_DELAY_MS * attempt;
-      console.error(
-        `[opencode.mjs] attempt ${attempt}/${MAX_PROMPT_ATTEMPTS} failed ` +
-          `(${err.message}); retrying in ${delay}ms...`
-      );
-      await sleep(delay);
+      if (isRetryableError(err) && attempt < MAX_PROMPT_ATTEMPTS) {
+        const delay = RETRY_BASE_DELAY_MS * attempt;
+        console.error(
+          `[opencode.mjs] attempt ${attempt}/${MAX_PROMPT_ATTEMPTS} failed ` +
+            `(${err.message}); retrying in ${delay}ms...`
+        );
+        await sleep(delay);
+        continue;
+      }
+      throw err;
     }
   }
-  throw lastErr;
 }
 
 main().catch((err) => {
   // 業務エラー（EngineError）は既にメッセージが組まれているので URL を伏せる。
   // 接続・SDK 由来のエラーは接続先 URL を併記して triage を容易にする。
-  if (err && err.name === "EngineError") {
+  if (err instanceof EngineError) {
     console.error("[opencode.mjs]", err.message);
   } else {
     console.error(

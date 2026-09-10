@@ -52,6 +52,9 @@ _DEFAULTS: dict[str, Any] = {
     # Issue #55 B1: テストのみのステージ時にテスト対象モジュールの実装コンテキストを
     # diff へ追加する (既定 false。プロンプトのガードレールが主対策)。
     "include_test_target_diff": False,
+    # Issue #137: ブランチ累積差分 (git diff <base>...HEAD) はステージ済み差分と大きく
+    # 重複し、reasoning 予算枯渇 (finish=length) の要因となるため既定で含めない。
+    "include_branch_diff": False,
     "precommit_engine": "auto",
     "precommit_model": None,
     "precommit_thinking": None,
@@ -209,6 +212,16 @@ def config_bool(
             return default
         return value.strip().lower() in {"1", "true", "yes"}
     return bool(value)
+
+
+def include_branch_diff(config: Mapping[str, Any] | None = None) -> bool:
+    """ブランチ累積差分をプロンプトへ含めるか (既定 False, Issue #137).
+
+    ステージ済み差分と重複しやすく reasoning 予算を圧迫するため既定で含めない。
+    スタックブランチ等で分岐元の文脈が必要な場合は config で true に戻す。
+    """
+    cfg = config if config is not None else load_config()
+    return config_bool(cfg, "include_branch_diff", default=False)
 
 
 def user_overrides() -> dict[str, Any]:
