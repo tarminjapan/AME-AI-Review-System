@@ -16,6 +16,12 @@ from .errors import FatalEngineError
 
 _DEFAULT_OPENCODE_URL = "http://127.0.0.1:4096"
 
+# thinking (low/medium/high) → opencode の variant。variant は opencode 側で
+# reasoning_effort に対応し、モデルが対応しない variant 名はサーバー既定へ倒れる。
+# Issue #137: この転送が無いと thinking が SDK に全く届かず (#107 の既定 low 化が
+# no-op になる)、reasoning 予算枯渇 (finish=length) を防げない。
+_OPENCODE_VARIANT: dict[str, str] = {"low": "low", "medium": "medium", "high": "high"}
+
 # 自動スポーンした serve のレディネス待ち最大秒数。起動直後のモデルコールド
 # スタートや LSP 初期化でヘッダー到達まで時間がかかる場合があるため余裕を持つ。
 _SERVER_READY_TIMEOUT_SECONDS = 20.0
@@ -174,6 +180,9 @@ class OpencodeTsAdapter:
         args: list[str] = []
         if settings.get("model"):
             args.extend(["--model", str(settings["model"])])
+        variant = _OPENCODE_VARIANT.get(str(settings.get("thinking", "low")))
+        if variant:
+            args.extend(["--variant", variant])
         return ts_runner.run_sidecar(
             "opencode.mjs", prompt, args, float(settings["timeout"])
         )
