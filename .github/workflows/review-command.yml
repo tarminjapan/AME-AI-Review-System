@@ -72,6 +72,8 @@ name: AI Code Review (Reusable Command)
 permissions:
   contents: read
   pull-requests: write
+  # Issue #140: GITHUB_TOKEN で HEAD SHA の check runs を読む (App 権限に依存しない)。
+  checks: read
 
 jobs:
   review:
@@ -163,9 +165,6 @@ jobs:
           permission-contents: read
           permission-pull-requests: write
           permission-issues: write
-          # Issue #140: HEAD SHA の check runs を読み外部 CI の合否を判定するため。
-          # 併せて GitHub App 側への Checks: Read 付与が前提 (未付与なら 403 で fail-open)。
-          permission-checks: read
 
       - name: Switch to PR branch
         if: steps.cmd.outputs.run_review == 'true'
@@ -194,6 +193,8 @@ jobs:
         if: steps.cmd.outputs.run_review == 'true'
         env:
           AME_AI_REVIEWER_TOKEN: ${{ steps.app_token.outputs.token }}
+          # Issue #140: check runs 読み取り専用トークン。App 権限に依存せず GITHUB_TOKEN で担保する。
+          AME_REVIEW_CHECKS_TOKEN: ${{ github.token }}
           REVIEWER_NAME: ame-ai-reviewer
           PR_NUMBER: ${{ steps.cmd.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}

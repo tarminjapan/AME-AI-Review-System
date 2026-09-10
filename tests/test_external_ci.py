@@ -59,17 +59,21 @@ def test_counts_all_failing_conclusions() -> None:
     runs = [
         _run("backend", "cancelled"),
         _run("frontend", "timed_out"),
-        _run("e2e", "action_required"),
         _run("lint", "stale"),
         _run("deploy", "startup_failure"),
     ]
     assert external_ci.failing_external_checks(runs, "ame-ai-reviewer") == [
         "backend",
         "deploy",
-        "e2e",
         "frontend",
         "lint",
     ]
+
+
+def test_action_required_is_not_failing() -> None:
+    # action_required は承認待ち等の「操作待ち」を表し得るため失敗扱いしない (Gate 2 指摘)。
+    runs = [_run("e2e", "action_required"), _run("backend", "success")]
+    assert external_ci.failing_external_checks(runs, "ame-ai-reviewer") == []
 
 
 def test_empty_runs() -> None:

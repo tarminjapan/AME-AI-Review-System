@@ -528,6 +528,7 @@ def test_cmd_review_skips_on_external_ci_failure(
 
     monkeypatch.setenv("GITHUB_REPOSITORY", "AME-Team/AME-AI-Review-System")
     monkeypatch.setenv("GITHUB_API_URL", "https://api.github.com")
+    monkeypatch.delenv("AME_REVIEW_CHECKS_TOKEN", raising=False)
     sha = "a" * 40
     posts: list[str] = []
 
@@ -580,6 +581,8 @@ def test_cmd_review_skips_on_external_ci_failure(
         token=fake_token,
     )
     assert main.cmd_review(args) == 0
-    out = capsys.readouterr().out
-    assert "skipping AI review" in out
+    captured = capsys.readouterr()
+    assert "skipping AI review" in captured.out
+    # checks トークン未設定時は縮退を警告で可視化する (Gate 2 指摘)。
+    assert "AME_REVIEW_CHECKS_TOKEN is not set" in captured.err
     assert any("issues/38/comments" in u for u in posts)

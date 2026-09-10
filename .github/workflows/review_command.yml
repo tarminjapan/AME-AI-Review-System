@@ -19,6 +19,8 @@ name: AI Code Review (Command)
 permissions:
   contents: read
   pull-requests: write
+  # Issue #140: reusable 側で GITHUB_TOKEN を使い HEAD SHA の check runs を読むため。
+  checks: read
 
 # Issue #68: issue_comment は Issue と PR の両方で発火するが、PR コメント以外は
 # ジョブ if で弾く。残る skipped run を同一 PR/Issue ごとにグループ化して履歴の

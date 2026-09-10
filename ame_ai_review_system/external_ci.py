@@ -11,13 +11,13 @@ from typing import Any, cast
 
 # GitHub Checks API の conclusion のうち「失敗扱い」とする終端値。skipped / neutral は
 # 失敗ではない (skipped はレビュアー自身のジョブの if 判定で発生し得る)。startup_failure は
-# ワークフロー自体が起動に失敗した終端状態で、これも失敗として扱う。
+# ワークフロー自体が起動に失敗した終端状態で、これも失敗として扱う。action_required は
+# 初回コントリビュータの承認待ち等「操作待ち」を表し得るため失敗扱いしない (Gate 2 指摘)。
 FAILING_CONCLUSIONS = frozenset(
     {
         "failure",
         "cancelled",
         "timed_out",
-        "action_required",
         "stale",
         "startup_failure",
     },

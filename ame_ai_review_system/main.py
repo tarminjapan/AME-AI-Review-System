@@ -891,10 +891,23 @@ def cmd_review(args: argparse.Namespace) -> int:
     # static 解析とは独立に、同一コミットの check runs に失敗があればレビューをスキップする。
     if review_config.pr_review_require_external_ci(config):
         print("[review] Checking external CI status on HEAD SHA...")
+        # check runs の読み取りは CI 権限で足りるため、App トークンに checks:read を要求せず
+        # workflow の GITHUB_TOKEN (checks:read) を優先する。未設定の経路 (ローカル実行や
+        # 別ワークフロー) は App トークンへ退避するが checks:read を持たず 403 でゲートが
+        # 縮退し得るため、警告で可視化する。
+        checks_token = os.environ.get("AME_REVIEW_CHECKS_TOKEN")
+        if not checks_token:
+            print(
+                "[review] WARNING: AME_REVIEW_CHECKS_TOKEN is not set; falling back "
+                "to the reviewer token. The external CI gate may stay disabled "
+                "(checks:read missing). Set it to a checks:read-capable token.",
+                file=sys.stderr,
+            )
+            checks_token = token
         check_runs: list[dict[str, Any]] = []
         try:
             check_runs = github_client.list_commit_check_runs(
-                api_url, repo, head_sha, token
+                api_url, repo, head_sha, checks_token
             )
         except RuntimeError as e:
             # API 一時障害や権限不足 (403) ではゲートを開けて続行する (fail-open)。
