@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-09-10
+
 ### Fixed
 
 - Gate 2 (`/request-review`) が外部 CI の合否を無視していた問題を修正した (Issue
