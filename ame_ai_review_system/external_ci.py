@@ -47,7 +47,12 @@ def failing_external_checks(
     check_runs: list[dict[str, Any]],
     reviewer_name: str,
 ) -> list[str]:
-    """失敗中の外部 CI チェック名を昇順で返す (レビュアー自身のジョブは除外)."""
+    """失敗中の外部 CI チェック名を昇順で返す (レビュアー自身のジョブは除外).
+
+    未完了のチェック (conclusion が None = queued / in_progress) は失敗扱いしない。
+    外部 CI の完了を待たずにレビューを開始できるようにする意図的な fail-open で、
+    CI 未完了でゲートを閉じると /request-review が無期限に遅延し得るため。
+    """
     failing: set[str] = set()
     for run in check_runs:
         name = str(run.get("name") or "")
