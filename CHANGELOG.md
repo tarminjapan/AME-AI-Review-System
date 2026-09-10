@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-09-10
+
+### Fixed
+
+- Gate 1 (pre-commit) が `finish=length`
+  空応答でも、fail-closed ではなく自動回復するようにした (Issue #137)。
+  - 従来 `--model` しか渡さなかったため opencode では no-op だった既定 low を、`thinking`
+    から variant へ実転送して効くようにした。
+  - `opencode.mjs` が `finish=length` かつ `output=0`
+    を検出したら、variant を high→medium→low と下げて最大 2 回リトライする。最低段では同じ variant で再試行し、モデルの非決定性による回復を狙う。
+  - 新設
+    `include_branch_diff`（既定 false）でブランチ累積差分をプロンプトから除外する。ステージ済み差分と重複しやすいため reasoning 予算枯渇の一因だった。必要な場合のみ config で true にする。
+
 ## [0.2.12] - 2026-09-10
 
 ### Fixed
