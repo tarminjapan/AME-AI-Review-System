@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from . import github_client, payload, review_config, stale_detect
 
-_STREAK_THRESHOLD = 2
+_STREAK_THRESHOLD = review_config.LOW_STREAK_THRESHOLD
 _COMMENT_MARKER = "<!-- ai-review-streak -->"
 _STREAK_RE = re.compile(r"streak:\s*(\d+)")
 _HEAD_RE = re.compile(r"head:\s*([0-9a-fA-F]+)")

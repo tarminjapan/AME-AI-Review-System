@@ -177,6 +177,7 @@ def set_last_fetched_head(state: dict[str, Any], head: str) -> None:
 
 def reset_all_streaks(state: dict[str, Any], branch: str) -> None:
     # post-commit ですべての streak 種別をリセットするためのヘルパ。
-    for key in ("low_only_streak", "engine_failure_streak"):
+    # total_review_count は Issue #134 の Gate 1 総ラウンド数上限用カウンタ。
+    for key in ("low_only_streak", "engine_failure_streak", "total_review_count"):
         set_streak(state, branch, 0, key=key)
     set_recent_reviews(state, branch, [])
