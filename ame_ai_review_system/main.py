@@ -25,7 +25,15 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from . import diff_truncate, github_client, init_cmd, paths, pr_streak, review_config
+from . import (
+    diff_truncate,
+    external_ci,
+    github_client,
+    init_cmd,
+    paths,
+    pr_streak,
+    review_config,
+)
 from . import payload as payload_module
 from .engine import apply_engine_info_env, resolve_settings, resolve_timeout
 
@@ -42,6 +50,8 @@ HTTP_STATUS_OK = 200
 SKIP_NOTICE_MARKER = "ame-review-skip-notice"
 # Issue #129: レビュー回数上限到達通知の重複防止マーカー (PR 番号が付与される)。
 LIMIT_NOTICE_MARKER = "ame-review-limit-notice"
+# Issue #140: 外部 CI 失敗によるレビュースキップ通知の重複防止マーカー (PR 番号が付与される)。
+EXTERNAL_CI_NOTICE_MARKER = "ame-review-external-ci-notice"
 # スキップ通知の既存判定で使うページサイズ / ページ上限。
 SKIP_NOTICE_PAGE_SIZE = 100
 SKIP_NOTICE_MAX_PAGES = 10
@@ -610,6 +620,73 @@ def _post_limit_notice(
         print(f"[review] Failed to notify review limit: {e}", file=sys.stderr)
 
 
+def _post_external_ci_notice(
+    api_url: str,
+    repo: str,
+    pr_number: int,
+    token: str,
+    failing: list[str],
+) -> None:
+    """外部 CI 失敗によるレビュースキップを PR へ一度だけ通知する (Issue #140)."""
+    notice_url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments"
+    marker = f"{EXTERNAL_CI_NOTICE_MARKER}-pr{pr_number}"
+    issue_url = f"{api_url}/repos/{repo}/issues/{pr_number}"
+    try:
+        existing = github_client.http_request(
+            "GET",
+            f"{api_url}/repos/{repo}/issues/comments"
+            f"?sort=created&direction=desc&per_page={SKIP_NOTICE_PAGE_SIZE}",
+            token,
+        )
+        already_posted = False
+        if isinstance(existing, list):
+            already_posted = skip_notice_already_posted(
+                cast("list[dict[str, Any]]", existing), marker, issue_url
+            )
+        # 直近100件に無い場合は PR スコープを全ページ走査して確実に判定する。
+        if not already_posted:
+            page = 1
+            while page <= SKIP_NOTICE_MAX_PAGES:
+                resp = github_client.http_request(
+                    "GET",
+                    f"{notice_url}?per_page={SKIP_NOTICE_PAGE_SIZE}&page={page}",
+                    token,
+                )
+                if not isinstance(resp, list) or not resp:
+                    break
+                resp_list = cast("list[dict[str, Any]]", resp)
+                if skip_notice_already_posted(resp_list, marker, issue_url):
+                    already_posted = True
+                    break
+                if len(resp_list) < SKIP_NOTICE_PAGE_SIZE:
+                    break
+                page += 1
+    except RuntimeError as e:
+        print(
+            f"[review] Failed to check existing external CI notice: {e}",
+            file=sys.stderr,
+        )
+        return
+    if already_posted:
+        print("[review] External CI notice already posted; skipping.")
+        return
+    body = (
+        "**外部 CI 失敗のため AI レビューを見送りました**\n\n"
+        "このコミットの必須 CI チェックが失敗中のため、AI レビューをスキップしました "
+        "(Issue #140)。\n\n"
+        "失敗中のチェック:\n"
+        + "".join(f"- `{name}`\n" for name in failing)
+        + "\nCI を修正してから `/request-review` を再実行してください。\n"
+        "(`config.json` の `pr_review_require_external_ci` を `false` にすると"
+        "このゲートを無効化できます)。\n\n"
+        f"<!-- {marker} -->"
+    )
+    try:
+        github_client.http_request("POST", notice_url, token, body={"body": body})
+    except RuntimeError as e:
+        print(f"[review] Failed to notify external CI skip: {e}", file=sys.stderr)
+
+
 def _run_engine_text(
     prompt: str,
     settings: dict[str, Any],
@@ -809,6 +886,31 @@ def cmd_review(args: argparse.Namespace) -> int:
             print(f"[review] Static precheck error: {e}", file=sys.stderr)
             return 1
         print("[review] Static analysis passed. Proceeding to AI review.")
+
+    # Issue #140: 外部 CI (リポジトリ自身の push/PR トリガー CI) の合否ゲート。
+    # static 解析とは独立に、同一コミットの check runs に失敗があればレビューをスキップする。
+    if review_config.pr_review_require_external_ci(config):
+        print("[review] Checking external CI status on HEAD SHA...")
+        check_runs: list[dict[str, Any]] = []
+        try:
+            check_runs = github_client.list_commit_check_runs(
+                api_url, repo, head_sha, token
+            )
+        except RuntimeError as e:
+            # API 一時障害や権限不足 (403) ではゲートを開けて続行する (fail-open)。
+            print(
+                f"[review] External CI check skipped (API error): {e}",
+                file=sys.stderr,
+            )
+        failing = external_ci.failing_external_checks(check_runs, reviewer_name)
+        if failing:
+            print(
+                "[review] External CI failing on HEAD SHA; skipping AI review: "
+                + ", ".join(failing),
+            )
+            _post_external_ci_notice(api_url, repo, pr_number, token, failing)
+            return 0
+        print("[review] External CI passing; proceeding to AI review.")
 
     # Build prompt
     prompt = _build_review_prompt(

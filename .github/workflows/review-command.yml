@@ -163,6 +163,9 @@ jobs:
           permission-contents: read
           permission-pull-requests: write
           permission-issues: write
+          # Issue #140: HEAD SHA の check runs を読み外部 CI の合否を判定するため。
+          # 併せて GitHub App 側への Checks: Read 付与が前提 (未付与なら 403 で fail-open)。
+          permission-checks: read
 
       - name: Switch to PR branch
         if: steps.cmd.outputs.run_review == 'true'

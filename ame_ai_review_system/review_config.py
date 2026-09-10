@@ -41,6 +41,10 @@ _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
     "precommit_require_static_checks": True,
     "pr_review_require_static_checks": True,
+    # Issue #140: Gate 2 で外部 CI (リポジトリ自身の push/PR トリガー CI) の合否を
+    # ゲートする (既定 false = オプトイン)。true のとき HEAD SHA の check runs に
+    # 失敗 (failure/cancelled 等) があれば AI レビューをスキップする。
+    "pr_review_require_external_ci": False,
     # Issue #129: 無限レビュー防止のための AI レビュー回数上限。Gate2 (PR) は総レビュー
     # 回数のハード上限、Gate1 (pre-commit) も Issue #134 以降は重大度によらない総
     # ラウンド数上限として扱う (LOW 連続の escape は LOW_STREAK_THRESHOLD で別途制御)。
@@ -350,6 +354,19 @@ def stale_threshold(config: Mapping[str, Any] | None = None) -> float:
     except (TypeError, ValueError):
         return float(_DEFAULTS["stale_jaccard_threshold"])
     return value if 0.0 < value <= 1.0 else float(_DEFAULTS["stale_jaccard_threshold"])
+
+
+def pr_review_require_external_ci(
+    config: Mapping[str, Any] | None = None,
+) -> bool:
+    """外部 CI ゲートの有効/無効を返す (既定 False, Issue #140)."""
+    cfg = config if config is not None else load_config()
+    # 既定値は _DEFAULTS を単一の情報源とする (default= のハードコードで二重管理しない)。
+    return config_bool(
+        cfg,
+        "pr_review_require_external_ci",
+        default=bool(_DEFAULTS["pr_review_require_external_ci"]),
+    )
 
 
 def _max_reviews(raw: object, default: int) -> int:

@@ -239,3 +239,34 @@ def resolve_review_thread(pr_number: int, comment_id: int, token: str) -> None:
             return
     msg = f"Review thread not found for comment {comment_id}"
     raise RuntimeError(msg)
+
+
+# Issue #140: Check Runs API のページング上限。API 異常で常に per_page 件返る場合の
+# 無限リクエストを防ぐ (上限到達時は取得済み分で判定する fail-open)。
+MAX_CHECK_RUN_PAGES = 10
+
+
+def list_commit_check_runs(
+    api_url: str, repo: str, ref: str, token: str
+) -> list[dict[str, Any]]:
+    """コミット (ref) の全 check runs を返す (ページング対応, Issue #140)."""
+    owner, name = repo.split("/", 1)
+    runs: list[dict[str, Any]] = []
+    per_page = 100
+    for page in range(1, MAX_CHECK_RUN_PAGES + 1):
+        url = (
+            f"{api_url}/repos/{owner}/{name}/commits/{ref}/check-runs"
+            f"?per_page={per_page}&page={page}"
+        )
+        data = http_request("GET", url, token)
+        if not isinstance(data, dict):
+            break
+        data_dict: dict[str, Any] = cast("dict[str, Any]", data)
+        raw_runs = data_dict.get("check_runs")
+        if not isinstance(raw_runs, list):
+            break
+        page_runs: list[dict[str, Any]] = cast("list[dict[str, Any]]", raw_runs)
+        runs.extend(page_runs)
+        if len(page_runs) < per_page:
+            break
+    return runs

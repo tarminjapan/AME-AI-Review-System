@@ -936,3 +936,22 @@ def test_include_branch_diff_true_when_set() -> None:
 def test_include_branch_diff_string_false() -> None:
     # config.user.json で "false" が文字列でも false と解釈する。
     assert review_config.include_branch_diff({"include_branch_diff": "false"}) is False
+
+
+# ---------------------------
+# pr_review_require_external_ci (Issue #140)
+# ---------------------------
+
+
+def test_pr_review_require_external_ci_default_false() -> None:
+    assert review_config.pr_review_require_external_ci({}) is False
+
+
+def test_pr_review_require_external_ci_reads_config() -> None:
+    cfg = {"pr_review_require_external_ci": True}
+    assert review_config.pr_review_require_external_ci(cfg) is True
+
+
+def test_pr_review_require_external_ci_string_true() -> None:
+    cfg = {"pr_review_require_external_ci": "true"}
+    assert review_config.pr_review_require_external_ci(cfg) is True
