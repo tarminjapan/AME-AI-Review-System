@@ -42,67 +42,116 @@ from ame_ai_review_system.stale_detect import comment_text as stale_comment_text
 
 
 def test_decide_zero_issues_passes_and_resets() -> None:
-    allow, new_streak, reason = decide([], 2)
+    allow, new_streak, new_total, reason = decide([], 2, 2)
     assert allow is True
     assert new_streak == 0
+    assert new_total == 0
     assert "0 件" in reason
 
 
 def test_decide_blocking_resets_streak() -> None:
     comments = [{"severity": "HIGH"}]
-    allow, new_streak, reason = decide(comments, 2)
+    allow, new_streak, new_total, reason = decide(comments, 2, 0)
     assert allow is False
     assert new_streak == 0
+    assert new_total == 1
     assert "blocking" in reason
 
 
 def test_decide_low_only_streak_0_fails() -> None:
     comments = [{"severity": "LOW"}]
-    allow, new_streak, _ = decide(comments, 0)
+    allow, new_streak, new_total, _ = decide(comments, 0, 0)
     assert allow is False
     assert new_streak == 1
+    assert new_total == 1
 
 
-def test_decide_low_only_streak_1_fails_at_default_threshold() -> None:
-    # Issue #129: 既定閾値 (precommit_max_reviews=3) では streak 1 はまだ PASS しない。
+def test_decide_low_only_streak_1_passes_at_fixed_threshold() -> None:
+    # Issue #134: LOW のみ連続 escape の閾値は固定 2 (Gate 2 と対称)。
+    # streak 1 → 2 で PASS し、総ラウンド数 (total=1 → 2) は上限 3 未満。
     comments = [{"severity": "LOW"}]
-    allow, new_streak, reason = decide(comments, 1)
+    allow, new_streak, new_total, reason = decide(comments, 1, 1)
+    assert allow is True
+    assert new_streak == 2
+    assert new_total == 2
+    assert "LOW のみ連続" in reason
+
+
+def test_decide_low_only_threshold_override() -> None:
+    # low_threshold を上書きすると従来どおりの LOW 連続閾値で判定できる。
+    comments = [{"severity": "LOW"}]
+    allow, new_streak, _new_total, _reason = decide(
+        comments,
+        1,
+        0,
+        low_threshold=3,
+    )
     assert allow is False
     assert new_streak == 2
-    assert "(streak 2/3)" in reason
 
 
-def test_decide_low_only_streak_2_passes_at_default_threshold() -> None:
-    # Issue #129: streak 2 → 3 で既定閾値 3 に達して PASS。
-    comments = [{"severity": "LOW"}]
-    allow, new_streak, reason = decide(comments, 2)
+def test_decide_total_limit_escapes_blocking() -> None:
+    # Issue #134: 重大度によらない総ラウンド上限に達したら blocking 指摘が残って
+    # いても PASS する (無限ループ回避)。既定 total_threshold=3 で total=2 → 3。
+    comments = [{"severity": "MIDDLE"}]
+    allow, new_streak, new_total, reason = decide(comments, 0, 2)
     assert allow is True
-    assert new_streak == 3
-    assert "無限ループ回避" in reason
+    assert new_streak == 0
+    assert new_total == 3
+    assert "総レビュー回数" in reason
+    assert "blocking" in reason
 
 
-def test_decide_threshold_override_keeps_old_behavior() -> None:
-    # Issue #129: threshold=2 を渡すと従来 (streak 1 で PASS) の挙動を維持する
-    # (後方互換)。
-    comments = [{"severity": "LOW"}]
-    allow, new_streak, reason = decide(comments, 1, threshold=2)
+def test_decide_total_limit_custom_threshold() -> None:
+    comments = [{"severity": "CRITICAL"}]
+    allow, _new_streak, new_total, reason = decide(
+        comments,
+        0,
+        1,
+        total_threshold=2,
+    )
     assert allow is True
-    assert new_streak == 2
-    assert "無限ループ回避" in reason
+    assert new_total == 2
+    assert "2/2" in reason
+
+
+def test_decide_total_limit_low_only_increments_streak() -> None:
+    # Issue #134: LOW のみで総ラウンド上限に達した場合も、他経路と同様に streak を
+    # 1 進める (LOW ラウンドは streak を進める不変条件を保つ)。
+    comments = [{"severity": "LOW"}]
+    allow, new_streak, new_total, reason = decide(
+        comments,
+        0,
+        2,
+        total_threshold=3,
+    )
+    assert allow is True
+    assert new_streak == 1
+    assert new_total == 3
+    assert "総レビュー回数" in reason
+
+
+def test_decide_total_limit_not_reached_blocks() -> None:
+    comments = [{"severity": "MIDDLE"}]
+    allow, _new_streak, new_total, reason = decide(comments, 0, 1)
+    assert allow is False
+    assert new_total == 2
+    assert "blocking" in reason
 
 
 def test_decide_mixed_severity_blocks_and_resets() -> None:
     comments = [{"severity": "LOW"}, {"severity": "CRITICAL"}]
-    allow, new_streak, _ = decide(comments, 1)
+    allow, new_streak, _new_total, _ = decide(comments, 1, 0)
     assert allow is False
     assert new_streak == 0
 
 
 def test_decide_multiple_blocking() -> None:
     comments = [{"severity": "HIGH"}, {"severity": "MIDDLE"}]
-    allow, new_streak, reason = decide(comments, 0)
+    allow, new_streak, new_total, reason = decide(comments, 0, 0)
     assert allow is False
     assert new_streak == 0
+    assert new_total == 1
     assert "2 件" in reason
 
 
@@ -1027,6 +1076,106 @@ def test_main_low_only_at_threshold_passes(
     assert rc == 0
     state = precommit_state.read_state(env["state_path"])
     assert state["branches"]["feature"]["low_only_streak"] == 3
+
+
+def test_main_blocking_increments_total_review_count(
+    monkeypatch: pytest.MonkeyPatch,
+    env: dict[str, Any],
+) -> None:
+    # Issue #134: blocking 指摘でも総ラウンド数カウンタは進む。
+    precommit_state.write_state(
+        env["state_path"],
+        {"branches": {"feature": {"low_only_streak": 1, "total_review_count": 1}}},
+    )
+    _engine_returning(
+        monkeypatch,
+        {
+            "summary": "blocking",
+            "comments": [
+                {
+                    "path": "f",
+                    "line": 1,
+                    "severity": "MIDDLE",
+                    "title": "t",
+                    "body": "b",
+                },
+            ],
+        },
+    )
+    rc = precommit_review.main([])
+    assert rc == 1
+    state = precommit_state.read_state(env["state_path"])
+    assert state["branches"]["feature"]["total_review_count"] == 2
+    assert state["branches"]["feature"]["low_only_streak"] == 0
+
+
+def test_main_total_review_limit_escapes_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+    env: dict[str, Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Issue #134: 総ラウンド上限に達したら blocking 指摘が残っていてもコミットを
+    # 許可し、明示的な警告を出力する。
+    precommit_state.write_state(
+        env["state_path"],
+        {"branches": {"feature": {"total_review_count": 2}}},
+    )
+    _engine_returning(
+        monkeypatch,
+        {
+            "summary": "blocking",
+            "comments": [
+                {
+                    "path": "f",
+                    "line": 1,
+                    "severity": "HIGH",
+                    "title": "t",
+                    "body": "b",
+                },
+            ],
+        },
+    )
+    rc = precommit_review.main([])
+    assert rc == 0
+    state = precommit_state.read_state(env["state_path"])
+    assert state["branches"]["feature"]["total_review_count"] == 3
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "総レビュー回数上限" in err
+
+
+def test_main_escapes_after_total_review_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    env: dict[str, Any],
+) -> None:
+    # Issue #134: blocking 指摘が連続しても、総ラウンド上限 (既定 3) で 3 回目に
+    # コミットが許可される (無限ループ回避)。
+    def engine(_p: Any, _e: Any, _s: Any) -> tuple[int, str, str]:
+        return (
+            0,
+            json.dumps(
+                {
+                    "summary": "blocking",
+                    "comments": [
+                        {
+                            "path": "f",
+                            "line": 1,
+                            "severity": "MIDDLE",
+                            "title": "unfixable",
+                            "body": "B",
+                        },
+                    ],
+                },
+            ),
+            "",
+        )
+
+    monkeypatch.setattr(precommit_review, "_run_engine", engine)
+    assert precommit_review.main([]) == 1
+    assert precommit_review.main([]) == 1
+    assert precommit_review.main([]) == 0
+    state = precommit_state.read_state(env["state_path"])
+    assert state["branches"]["feature"]["total_review_count"] == 3
 
 
 def test_main_stale_review_demotes_and_builds_streak(

@@ -24,9 +24,14 @@ from . import (
 # _build_diff が出力する "### ステージ済み差分 ..." ヘッダに対応する。
 _PRIORITY_DIFF_MARKER = "ステージ済み差分"
 
-# LOW streak がこの回数に達したら LOW のみの指摘でもコミットの escape を許可する
-# (無限ループ回避)。閾値は Issue #129 の ``precommit_max_reviews`` (config.json) で制御し、
-# _decide が None のとき内部的に review_config から解決する。
+# LOW/INFO のみの指摘が連続した回数の閾値 (固定, Issue #134)。Gate 2 の
+# ``pr_streak._STREAK_THRESHOLD`` と共有定数 ``review_config.LOW_STREAK_THRESHOLD``
+# を参照し、片方だけ変更されて非対称化するのを防ぐ。
+_LOW_STREAK_THRESHOLD = review_config.LOW_STREAK_THRESHOLD
+
+# 重大度によらない総レビュー回数の上限は ``precommit_max_reviews`` (config.json,
+# 既定 3) で制御する。blocking 指摘が残っていてもこの回数に達したらコミットを
+# 許可する (Issue #134)。_decide が None のとき内部的に review_config から解決する。
 
 # エンジン失敗 streak がこの回数に達したらコミットを許可する（API 一時障害対策）。
 _ENGINE_FAILURE_STREAK_THRESHOLD = 3
@@ -300,27 +305,60 @@ def _is_blocking(comment: dict[str, Any]) -> bool:
 def _decide(
     comments: list[dict[str, Any]],
     streak: int,
-    threshold: int | None = None,
-) -> tuple[bool, int, str]:
-    if threshold is None:
-        threshold = review_config.precommit_max_reviews()
+    total: int = 0,
+    *,
+    low_threshold: int = _LOW_STREAK_THRESHOLD,
+    total_threshold: int | None = None,
+) -> tuple[bool, int, int, str]:
+    """コミット可否を判定する.
+
+    2 つの独立した escape 機構を持つ (Issue #134, Gate 2 と対称):
+
+    1. LOW/INFO のみが ``low_threshold`` 回連続したら PASS (固定値)。
+    2. 重大度によらない総レビュー回数が ``total_threshold`` に達したら、blocking
+       指摘が残っていても PASS (無限ループ回避)。
+
+    Returns ``(allow, new_low_streak, new_total, reason)``。
+    """
+    if total_threshold is None:
+        total_threshold = review_config.precommit_max_reviews()
     if not comments:
-        return True, 0, "指摘 0 件のため PASS"
+        return True, 0, 0, "指摘 0 件のため PASS"
+    new_total = total + 1
     blocking = [c for c in comments if _is_blocking(c)]
+    # 総ラウンド数のハード上限を blocking 判定より先に評価する。既定では
+    # total_threshold (3) > low_threshold (2) のため LOW のみ連続は先に escape し、
+    # blocking はこの上限でのみ escape する。
+    if new_total >= total_threshold:
+        suffix = f" (blocking 指摘 {len(blocking)} 件を許容)" if blocking else ""
+        # blocking が残る場合は LOW 連続カウンタをリセットする。LOW のみの場合は他経路と
+        # 同様に streak を 1 進める (「LOW ラウンドは streak を進める」不変条件を保つ)。
+        escaped_streak = 0 if blocking else streak + 1
+        return (
+            True,
+            escaped_streak,
+            new_total,
+            (
+                f"総レビュー回数 {new_total}/{total_threshold} に達したため PASS"
+                f" (無限ループ回避){suffix}"
+            ),
+        )
     if blocking:
-        return False, 0, f"blocking 指摘 {len(blocking)} 件を検出"
+        return False, 0, new_total, f"blocking 指摘 {len(blocking)} 件を検出"
     # LOW-only。streak を進めて閾値に達したら抜ける。
     new_streak = streak + 1
-    if new_streak >= threshold:
+    if new_streak >= low_threshold:
         return (
             True,
             new_streak,
+            new_total,
             f"LOW のみ連続 {new_streak} 回目のため PASS (無限ループ回避)",
         )
     return (
         False,
         new_streak,
-        f"LOW 指摘 {len(comments)} 件 (streak {new_streak}/{threshold})",
+        new_total,
+        f"LOW 指摘 {len(comments)} 件 (streak {new_streak}/{low_threshold})",
     )
 
 
@@ -796,6 +834,7 @@ def main(argv: list[str] | None = None) -> int:
     # これにより「連続失敗」の語義が保たれる (失敗 → 成功 → 失敗 で streak は 1 に戻る)。
     precommit_state.set_streak(state, branch, 0, key="engine_failure_streak")
     streak = precommit_state.get_streak(state, branch)
+    total = precommit_state.get_streak(state, branch, key="total_review_count")
 
     # Issue #55 B2: 前回レビューと同一のコメント (コメント単位の stale-loop 検出) のみを
     # LOW へ降格し、severity の揺れ (MIDDLE → LOW → MIDDLE) で streak escape が進まない
@@ -811,14 +850,24 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    low_streak_threshold = review_config.precommit_max_reviews()
-    allow, new_streak, reason = _decide(
+    total_review_limit = review_config.precommit_max_reviews()
+    allow, new_streak, new_total, reason = _decide(
         filtered_comments,
         streak,
-        threshold=low_streak_threshold,
+        total,
+        total_threshold=total_review_limit,
     )
 
     print(f"[precommit-review] {reason}", file=sys.stderr)
+    # Issue #134: 総ラウンド上限で blocking 指摘を許容して escape した場合は、
+    # その旨を明示的に警告する (Gate 2 の通知コメント相当)。
+    if allow and filtered_comments and any(_is_blocking(c) for c in filtered_comments):
+        print(
+            "[precommit-review] WARNING: 総レビュー回数上限 "
+            f"({new_total}/{total_review_limit}) に達したため、blocking 指摘が"
+            "残っていますがコミットを許可します。指摘への対応状況を確認してください。",
+            file=sys.stderr,
+        )
     summary = str(review.get("summary", "")).strip()
     if summary:
         print(f"[precommit-review] summary: {summary}", file=sys.stderr)
@@ -826,12 +875,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         print(
-            f"[precommit-review] dry-run: would set streak={new_streak}, allow={allow}",
+            f"[precommit-review] dry-run: would set streak={new_streak}, "
+            f"total={new_total}, allow={allow}",
             file=sys.stderr,
         )
         return 0
 
     precommit_state.set_streak(state, branch, new_streak)
+    precommit_state.set_streak(state, branch, new_total, key="total_review_count")
     # 次回の stale-loop 判定用に今回のレビューをコメント単位で保持する。
     current_texts = [stale_detect.comment_text(c) for c in filtered_comments]
     if current_texts:
@@ -841,10 +892,12 @@ def main(argv: list[str] | None = None) -> int:
     if allow:
         print("[precommit-review] commit allowed.", file=sys.stderr)
         return 0
-    remaining = low_streak_threshold - new_streak
+    remaining_low = _LOW_STREAK_THRESHOLD - new_streak
+    remaining_total = total_review_limit - new_total
     print(
         "[precommit-review] commit BLOCKED. 修正して再 add するか、"
-        f"LOW 指摘のみが続く場合はあと {remaining} 回で抜けられます。",
+        f"LOW 指摘のみが続く場合はあと {remaining_low} 回 (streak)、"
+        f"重大度によらずあと {remaining_total} 回 (総ラウンド上限) で抜けられます。",
         file=sys.stderr,
     )
     return 1

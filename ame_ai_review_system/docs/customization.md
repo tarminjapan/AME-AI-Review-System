@@ -312,10 +312,12 @@ DIFF=$(git diff "origin/${BASE_REF}...HEAD" -- . ':(exclude)*.md' ':(exclude)ven
 - **`precommit_require_static_checks`**:
   `true`（デフォルト）の場合、静的解析がパスした時のみ AI レビューに進む。`false`
   の場合は静的解析の成否に関わらず AI レビューする。
-- **`precommit_max_reviews`**（Issue #129）: Gate 1 の LOW /
-  INFO のみ連続レビュー回数の上限（デフォルト
-  `3`）。この回数に達したらコミットが許可される（無限ループ回避の escape）。`0` 以下・不正値は既定
-  `3`。
+- **`precommit_max_reviews`**（Issue #134）: Gate
+  1 の重大度によらない総レビュー回数ハード上限（デフォルト
+  `3`）。blocking 指摘（MIDDLE 以上）が残っていても、この回数に達したらコミットを許可して警告を出力する（無限ループ回避の escape）。LOW
+  / INFO のみ連続の escape は固定 2 回で別途働く。`0` 以下・不正値は既定
+  `3`。LOW 連続閾値（2）以下に設定すると blocking が早期通過してしまうため、最小値は `3`
+  にクランプされる。
 - **`precommit_engine`**: デフォルトは `"auto"` であり、動作中の AI ツール（Claude Code, OpenCode,
   Antigravity）を自動検出する。明示的に `"claude"`, `"opencode"`, `"antigravity"`
   を指定して固定できる。
@@ -576,8 +578,9 @@ REVIEW_THINKING = low
 1 つの PR に対する AI レビュー回数の上限（無限レビュー防止）は、Git 管理対象の `config.json`
 で設定します（Variables ではない）。
 
-- **`precommit_max_reviews`**（既定 `3`）: Gate 1 の LOW /
-  INFO のみ連続レビュー回数の escape 閾値。この回数に達したらコミットが許可される。
+- **`precommit_max_reviews`**（既定 `3`）: Gate
+  1 の重大度によらない総レビュー回数ハード上限。blocking 指摘（MIDDLE 以上）が残っていても、この回数に達したらコミットを許可して警告を出力する（Issue
+  #134）。LOW / INFO のみ連続の escape は固定 2 回で別途働く。
 - **`pr_max_reviews`**（既定 `3`）: Gate
   2 の総レビュー回数ハード上限。LOW 連続の有無に関わらず、この回数に達したらレビューをスキップして Gate
   2 を終了する。到達時は PR に一度だけ通知コメントが投稿される。

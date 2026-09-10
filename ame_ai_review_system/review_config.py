@@ -33,12 +33,17 @@ if TYPE_CHECKING:
 
 from . import paths
 
+# Issue #134: LOW/INFO のみ連続時の escape 閾値 (固定)。Gate 1 (precommit_review) と
+# Gate 2 (pr_streak) で共有し、両者の非対称化を防ぐ。
+LOW_STREAK_THRESHOLD = 2
+
 _DEFAULTS: dict[str, Any] = {
     "precommit_review_enabled": True,
     "precommit_require_static_checks": True,
     "pr_review_require_static_checks": True,
-    # Issue #129: 無限レビュー防止のための AI レビュー回数上限。Gate1 (pre-commit)
-    # は LOW/INFO のみ連続時の escape 閾値、Gate2 (PR) は総レビュー回数のハード上限。
+    # Issue #129: 無限レビュー防止のための AI レビュー回数上限。Gate2 (PR) は総レビュー
+    # 回数のハード上限、Gate1 (pre-commit) も Issue #134 以降は重大度によらない総
+    # ラウンド数上限として扱う (LOW 連続の escape は LOW_STREAK_THRESHOLD で別途制御)。
     "precommit_max_reviews": 3,
     "pr_max_reviews": 3,
     "ai_review_enforce_no_skip": True,
@@ -348,16 +353,24 @@ def _max_reviews(raw: object, default: int) -> int:
 
 
 def precommit_max_reviews(config: Mapping[str, Any] | None = None) -> int:
-    """Gate 1 (pre-commit) の LOW/INFO のみ連続 escape 閾値を返す (既定 3, Issue #129).
+    """Gate 1 (pre-commit) の重大度によらない総レビュー回数ハード上限を返す (既定 3, Issue #134).
 
-    ``precommit_max_reviews: 0`` や負値・不正値は既定値 3 へフォールバックする。
-    ``precommit_*`` キーのためグローバル設定 (Issue #120) からも取り込まれる。
+    LOW 連続の有無に関わらず、この回数に達したら blocking 指摘が残っていても
+    コミットを許可して Gate 1 を終了する。LOW/INFO のみ連続の escape 閾値は
+    ``LOW_STREAK_THRESHOLD`` (固定 2) で別途制御する。
+
+    総ラウンド上限が ``LOW_STREAK_THRESHOLD`` 以下だと LOW 連続の escape より先に
+    blocking が通過し Gate 1 のブロック機能を暗黙に弱めるため、最小値は
+    ``LOW_STREAK_THRESHOLD + 1`` にクランプする (Issue #134)。``0`` 以下・不正値は
+    既定値 3 へフォールバックする。``precommit_*`` キーのためグローバル設定
+    (Issue #120) からも取り込まれる。
     """
     cfg = config if config is not None else load_config()
-    return _max_reviews(
+    value = _max_reviews(
         cfg.get("precommit_max_reviews", _DEFAULTS["precommit_max_reviews"]),
         int(_DEFAULTS["precommit_max_reviews"]),
     )
+    return max(value, LOW_STREAK_THRESHOLD + 1)
 
 
 def pr_max_reviews(config: Mapping[str, Any] | None = None) -> int:

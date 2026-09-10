@@ -85,13 +85,18 @@ def test_set_streak_preserves_other_keys_in_same_branch() -> None:
 def test_reset_all_streaks() -> None:
     state: dict[str, Any] = {
         "branches": {
-            "feature": {"low_only_streak": 2, "engine_failure_streak": 2},
+            "feature": {
+                "low_only_streak": 2,
+                "engine_failure_streak": 2,
+                "total_review_count": 3,
+            },
         },
     }
     precommit_state.reset_all_streaks(state, "feature")
     entry = state["branches"]["feature"]
     assert entry["low_only_streak"] == 0
     assert entry["engine_failure_streak"] == 0
+    assert entry["total_review_count"] == 0
 
 
 def test_recent_reviews_roundtrip() -> None:

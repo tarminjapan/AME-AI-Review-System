@@ -130,6 +130,31 @@ def test_precommit_max_reviews_invalid_falls_back() -> None:
     assert review_config.precommit_max_reviews({}) == 3
 
 
+def test_precommit_max_reviews_clamped_to_low_streak_plus_one() -> None:
+    # Issue #134: LOW 連続 escape (固定 2) より先に blocking が通過しないよう、
+    # 総ラウンド上限の最小値は LOW_STREAK_THRESHOLD + 1 (=3) にクランプする。
+    assert (
+        review_config.precommit_max_reviews({"precommit_max_reviews": 1})
+        == review_config.LOW_STREAK_THRESHOLD + 1
+    )
+    assert (
+        review_config.precommit_max_reviews({"precommit_max_reviews": 2})
+        == review_config.LOW_STREAK_THRESHOLD + 1
+    )
+    # クランプ境界以上はそのまま反映される。
+    assert review_config.precommit_max_reviews({"precommit_max_reviews": 3}) == 3
+    assert review_config.precommit_max_reviews({"precommit_max_reviews": 4}) == 4
+
+
+def test_low_streak_threshold_shared_across_gates() -> None:
+    # Issue #134: Gate 1 と Gate 2 の LOW 連続閾値は単一の共有定数を参照し、
+    # 片方だけ変更されて非対称化しないこと。
+    from ame_ai_review_system import pr_streak, precommit_review
+
+    assert precommit_review._LOW_STREAK_THRESHOLD == review_config.LOW_STREAK_THRESHOLD
+    assert pr_streak._STREAK_THRESHOLD == review_config.LOW_STREAK_THRESHOLD
+
+
 def test_pr_max_reviews_default() -> None:
     assert review_config.pr_max_reviews() == 3
 
